@@ -1,0 +1,51 @@
+---
+title: Errors
+description: "API error codes, response format, and how to handle them"
+---
+
+# Error Handling
+
+When something goes wrong, the MDI API returns standard HTTP status codes along with a JSON error body. Understanding these codes will save you hours of debugging.
+
+## HTTP Status Codes
+
+| Code | What Happened | What to Do |
+|------|--------------|------------|
+| `400` | **Bad Request** — Your request body is malformed or missing required fields. | Check the response body for details on which field failed validation. |
+| `401` | **Unauthorized** — Your token is missing, invalid, or expired. | Request a new access token and retry. |
+| `403` | **Forbidden** — Your token is valid but doesn't have permission for this action. | Check that your partner account has access to this endpoint or resource. |
+| `404` | **Not Found** — The resource you're looking for doesn't exist. | Verify the UUID or ID you're using. The resource may have been deleted. |
+| `418` | **API Under Maintenance** — MDI is performing scheduled maintenance. | Wait and retry. This is temporary. Check with MDI support if it persists. |
+| `422` | **Validation Error** — Your request was well-formed but contains invalid data. | Read the error details — they tell you exactly which fields are wrong. |
+| `429` | **Too Many Requests** — You've hit a rate limit. | Back off and retry with exponential backoff. |
+| `5XX` | **Server Error** — Something went wrong on MDI's side. | Retry with exponential backoff. If it persists, contact support. |
+
+## Error Response Format
+
+Error responses include a JSON body with two fields:
+
+```json
+{
+  "error": "Detailed technical error message (not present in production)",
+  "message": "Patient email is already in use."
+}
+```
+
+- **`message`** — A human-readable error message safe to show to end users. Always present.
+- **`error`** — A detailed technical error message for debugging. Only returned in sandbox/staging, **not in production**.
+
+## Common Mistakes
+
+Here are the errors we see most often from new integrations:
+
+**"Patient email is already in use"** — You're trying to create a patient with an email that already exists in your partner account. Search for the existing patient with `POST /v1/partner/patients/search` instead.
+
+**"The patient_id field is required"** — You're creating a case without specifying which patient it's for. Every case needs a `patient_id`.
+
+**"Unauthorized" on every request** — Double-check that your `Authorization` header includes the word "Bearer" before the token: `Bearer eyJ0eXAi...`, not just the raw token string.
+
+**"Resource not found" for a valid UUID** — You might be using a sandbox UUID in production or vice versa. Each environment has its own data.
+
+<Tip>
+  When debugging, always log the full response body — not just the status code. The `message` field usually tells you exactly what's wrong.
+</Tip>

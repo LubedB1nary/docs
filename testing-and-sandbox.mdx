@@ -1,0 +1,343 @@
+---
+title: Testing & Sandbox
+description: "How to test your integration safely — sandbox credentials, demo vouchers, test encounters, and debugging strategies"
+---
+
+# Testing & Sandbox
+
+Before you go live with real patients and real prescriptions, you need to thoroughly test your integration. MDI provides several tools for this: sandbox credentials, demo vouchers, and dedicated test endpoints that let you simulate the entire case lifecycle without creating real prescriptions or charges.
+
+## Sandbox vs. Production
+
+MDI uses the **same base URL** for both environments. The difference is in the credentials:
+
+| | Sandbox | Production |
+|-|---------|------------|
+| **Base URL** | `https://api.mdintegrations.com/v1` | `https://api.mdintegrations.com/v1` |
+| **Credentials** | Sandbox Client ID & Secret | Production Client ID & Secret |
+| **Real prescriptions?** | No | Yes |
+| **Real charges?** | No | Yes |
+| **DoseSpot pharmacy IDs** | Different from production | Different from sandbox |
+
+<Warning>
+  DoseSpot uses **different pharmacy IDs** in sandbox vs. production. For example, the Curexa pharmacy is ID `13012` in sandbox and `29992` in production. Make sure you're not hardcoding pharmacy IDs — look them up dynamically using the pharmacy search endpoint for your current environment.
+</Warning>
+
+Your MDI team will provide separate credentials for each environment. Start development with sandbox credentials, and only switch to production when you're ready to handle real patient data.
+
+## Demo Vouchers
+
+The fastest way to test the intake flow is with **demo vouchers**. Set `"demo": true` when creating a voucher:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/vouchers \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "demo": true,
+    "questionnaire_id": "YOUR_QUESTIONNAIRE_ID",
+    "expires_at": "2030-12-31 23:59"
+  }'
+```
+
+```python Python
+import requests
+
+voucher = requests.post(
+    "https://api.mdintegrations.com/v1/partner/vouchers",
+    json={
+        "demo": True,
+        "questionnaire_id": "YOUR_QUESTIONNAIRE_ID",
+        "expires_at": "2030-12-31 23:59"
+    },
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+).json()
+
+print(f"Test this URL: {voucher['onboarding_url']}")
+```
+
+```javascript JavaScript
+const voucher = await fetch("https://api.mdintegrations.com/v1/partner/vouchers", {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    demo: true,
+    questionnaire_id: "YOUR_QUESTIONNAIRE_ID",
+    expires_at: "2030-12-31 23:59"
+  })
+}).then(r => r.json());
+console.log(`Test this URL: ${voucher.onboarding_url}`);
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/vouchers");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    "demo" => true,
+    "questionnaire_id" => "YOUR_QUESTIONNAIRE_ID",
+    "expires_at" => "2030-12-31 23:59"
+]));
+$voucher = json_decode(curl_exec($ch), true);
+curl_close($ch);
+echo "Test this URL: " . $voucher["onboarding_url"] . "\n";
+```
+
+</CodeGroup>
+
+Demo vouchers:
+- **Don't create real patient records or cases** — safe to use repeatedly
+- **Never expire** — even if you set an `expires_at`, demo vouchers remain active
+- **Don't trigger charges** — no billing events
+- **Let you test the full intake flow** — you can walk through the questionnaire, upload files, select a pharmacy, and see exactly what your patients will experience
+
+This is the best way to QA your intake forms and embedding setup.
+
+## Test Encounter Endpoints
+
+MDI provides a set of `/partner/tests/` endpoints specifically for testing the case lifecycle. These let you create encounters, simulate status changes, and test messaging — all without affecting real data.
+
+### Create a test encounter
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/tests/encounters \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "preferred_pharmacy_id": 13012,
+    "questionnaire_id": "YOUR_QUESTIONNAIRE_ID",
+    "completion_time": "00:05:30",
+    "patient": {
+      "first_name": "Test",
+      "last_name": "Patient",
+      "email": "test+123@example.com",
+      "date_of_birth": "1990-01-01",
+      "gender": 1,
+      "phone_number": "5551234567",
+      "phone_type": 2,
+      "address": {
+        "address": "123 Test St",
+        "city_name": "Austin",
+        "state_name": "TX",
+        "zip_code": "78701"
+      }
+    },
+    "case": {
+      "metadata": "test-order-001",
+      "case_files": [],
+      "case_prescriptions": [
+        {
+          "dosespot_medication_id": 310964,
+          "refills": 2,
+          "quantity": 1.5,
+          "days_supply": 30,
+          "directions": "Take one daily",
+          "dispense_unit_id": 2,
+          "pharmacy_id": 13012
+        }
+      ]
+    }
+  }'
+```
+
+```python Python
+import requests
+
+encounter = requests.post(
+    "https://api.mdintegrations.com/v1/partner/tests/encounters",
+    json={
+        "preferred_pharmacy_id": 13012,
+        "questionnaire_id": "YOUR_QUESTIONNAIRE_ID",
+        "completion_time": "00:05:30",
+        "patient": {
+            "first_name": "Test",
+            "last_name": "Patient",
+            "email": "test+123@example.com",
+            "date_of_birth": "1990-01-01",
+            "gender": 1,
+            "phone_number": "5551234567",
+            "phone_type": 2,
+            "address": {
+                "address": "123 Test St",
+                "city_name": "Austin",
+                "state_name": "TX",
+                "zip_code": "78701"
+            }
+        },
+        "case": {
+            "metadata": "test-order-001",
+            "case_files": [],
+            "case_prescriptions": [{
+                "dosespot_medication_id": 310964,
+                "refills": 2,
+                "quantity": 1.5,
+                "days_supply": 30,
+                "directions": "Take one daily",
+                "dispense_unit_id": 2,
+                "pharmacy_id": 13012
+            }]
+        }
+    },
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+).json()
+```
+
+```javascript JavaScript
+const encounter = await fetch("https://api.mdintegrations.com/v1/partner/tests/encounters", {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    preferred_pharmacy_id: 13012,
+    questionnaire_id: "YOUR_QUESTIONNAIRE_ID",
+    completion_time: "00:05:30",
+    patient: {
+      first_name: "Test", last_name: "Patient",
+      email: "test+123@example.com", date_of_birth: "1990-01-01",
+      gender: 1, phone_number: "5551234567", phone_type: 2,
+      address: { address: "123 Test St", city_name: "Austin", state_name: "TX", zip_code: "78701" }
+    },
+    case: {
+      metadata: "test-order-001",
+      case_prescriptions: [{
+        dosespot_medication_id: 310964, refills: 2, quantity: 1.5,
+        days_supply: 30, directions: "Take one daily",
+        dispense_unit_id: 2, pharmacy_id: 13012
+      }]
+    }
+  })
+}).then(r => r.json());
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/tests/encounters");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    "preferred_pharmacy_id" => 13012,
+    "questionnaire_id" => "YOUR_QUESTIONNAIRE_ID",
+    "completion_time" => "00:05:30",
+    "patient" => [
+        "first_name" => "Test", "last_name" => "Patient",
+        "email" => "test+123@example.com", "date_of_birth" => "1990-01-01",
+        "gender" => 1, "phone_number" => "5551234567", "phone_type" => 2,
+        "address" => ["address" => "123 Test St", "city_name" => "Austin", "state_name" => "TX", "zip_code" => "78701"]
+    ],
+    "case" => ["metadata" => "test-order-001", "case_prescriptions" => [
+        ["dosespot_medication_id" => 310964, "refills" => 2, "quantity" => 1.5,
+         "days_supply" => 30, "directions" => "Take one daily",
+         "dispense_unit_id" => 2, "pharmacy_id" => 13012]
+    ]]
+]));
+$encounter = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+### Simulate status changes
+
+Push a test encounter through different status transitions:
+
+```bash
+# Move to a specific status
+curl -X POST https://api.mdintegrations.com/v1/partner/tests/encounters/ENCOUNTER_ID/status \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"status": "processing"}'
+```
+
+### Reassign clinician
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/tests/encounters/ENCOUNTER_ID/reassign \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"clinician_id": "CLINICIAN_UUID"}'
+```
+
+### Create a test encounter from a voucher
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/tests/vouchers/VOUCHER_ID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "patient": { ... },
+    "case": { ... }
+  }'
+```
+
+### Send a test message
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/tests/patients/PATIENT_ID/messages \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "channel": "patient",
+    "clinician_id": "CLINICIAN_UUID",
+    "text": "This is a test message from the clinician.",
+    "files": []
+  }'
+```
+
+This simulates a clinician sending a message — useful for testing your messaging integration without needing a real clinician to log in.
+
+## Testing Checklist
+
+Before going live, verify each of these works in your integration:
+
+<Steps>
+  <Step title="Authentication">
+    Generate a token with sandbox credentials. Verify token refresh works. Verify your app handles 401 responses gracefully.
+  </Step>
+  <Step title="Patient creation">
+    Create a patient. Verify duplicate email handling (should get an error). Search for the patient. Update the patient.
+  </Step>
+  <Step title="Voucher flow">
+    Create a demo voucher. Open the onboarding URL. Walk through the entire intake form. Verify you receive the `voucher_used` webhook with the correct `metadata`.
+  </Step>
+  <Step title="Direct case creation">
+    Create a case with offerings, questions, diseases, and files. Verify all data appears correctly when you GET the case.
+  </Step>
+  <Step title="Webhook handling">
+    Verify your webhook endpoint receives events. Test signature verification. Confirm your handler processes each event type correctly. Test with the test encounter endpoints to trigger specific status changes.
+  </Step>
+  <Step title="Messaging">
+    Send a message via the API. Read messages. Mark as read. Verify the `message_created` webhook fires. If you're embedding the messaging UI, test the iframe.
+  </Step>
+  <Step title="Post-prescription flow">
+    Use test encounters to simulate an approved case. Check that offerings show the correct statuses. Verify order listing and submission work.
+  </Step>
+  <Step title="Error handling">
+    Test invalid payloads to see error responses. Test expired tokens. Test missing required fields. Make sure your app shows helpful error messages to users.
+  </Step>
+  <Step title="Embedding (if applicable)">
+    Test the intake form in an iframe with `?fullscreen=true`. Verify camera/microphone permissions work for ID capture. Test the messaging embed.
+  </Step>
+</Steps>
+
+## Debugging Tips
+
+**Check the case events log.** Every action on a case is recorded:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/cases/CASE_ID/events?page=1&per_page=50" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+This is the most reliable way to see what happened to a case and when.
+
+**Use `metadata` everywhere.** When creating cases and vouchers, always include your internal order ID in the `metadata` field. It shows up in every webhook, making it trivial to correlate events.
+
+**Log full webhook payloads.** During development, log the entire webhook JSON body to a file or database. When something unexpected happens, you can review the full payload rather than trying to reproduce the issue.
+
+**Use unique test emails.** Email addresses must be unique per partner. Use the `+` trick for Gmail-style addresses: `test+case001@yourdomain.com`, `test+case002@yourdomain.com`, etc.

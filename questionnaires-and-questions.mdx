@@ -1,0 +1,452 @@
+---
+title: Questionnaires & Questions
+description: "Deep dive into intake questionnaires, question types, critical/important flags, conditional rules, and how answers flow through to cases"
+---
+
+# Questionnaires & Questions
+
+Questionnaires are the backbone of the MDI intake experience. They're the forms patients fill out — either through a voucher link or embedded in your app — and the answers become the clinical information that clinicians use to evaluate cases. Understanding how questionnaires work will help you design better intake flows, interpret case data correctly, and build smarter integrations.
+
+## How Questionnaires Fit Into the Flow
+
+When a patient completes an intake, here's what happens under the hood:
+
+1. The patient opens a voucher link (or embedded intake form)
+2. MDI loads the questionnaire configured for that voucher
+3. The patient answers questions, uploads files, selects a pharmacy
+4. MDI creates a patient record and a case
+5. The questionnaire answers become **case questions** — attached to the case and visible to the clinician
+6. Conditional rules determine which offerings (medications) are included based on the patient's answers, state, and BMI
+
+So there are actually two levels of "questions" in MDI: **questionnaire questions** (the template) and **case questions** (the answers on a specific case).
+
+## Listing Your Questionnaires
+
+Every partner has one or more questionnaires configured. List them to see what's available:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET https://api.mdintegrations.com/v1/partner/questionnaires \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+questionnaires = requests.get(
+    "https://api.mdintegrations.com/v1/partner/questionnaires",
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+).json()
+
+for q in questionnaires:
+    print(f"{q['partner_questionnaire_id']}: {q['name']}")
+    print(f"  Welcome screen: {q.get('is_show_welcome', True)}")
+    print(f"  Thank you screen: {q.get('is_show_thanks', True)}")
+    print(f"  Asks for weight/height: {q.get('is_weight_asked', False)}")
+    print(f"  Has pharmacy selection: {q.get('has_pharmacy', False)}")
+    print(f"  Questions: {len(q.get('questions', []))}")
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.mdintegrations.com/v1/partner/questionnaires", {
+  headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" }
+});
+const questionnaires = await response.json();
+questionnaires.forEach(q => {
+  console.log(`${q.partner_questionnaire_id}: ${q.name}`);
+  console.log(`  Questions: ${q.questions?.length || 0}`);
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/questionnaires");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Accept: application/json"]);
+$questionnaires = json_decode(curl_exec($ch), true);
+curl_close($ch);
+foreach ($questionnaires as $q) {
+    echo $q["partner_questionnaire_id"] . ": " . $q["name"] . "\n";
+}
+```
+
+</CodeGroup>
+
+### Questionnaire Configuration Fields
+
+Each questionnaire has settings that control the intake experience:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Internal name for the questionnaire. |
+| `intro_title` | string | Title shown on the welcome screen. |
+| `intro_description` | string | Description shown on the welcome screen. |
+| `outro_title` | string | Title shown on the thank-you screen. |
+| `outro_description` | string | Description shown on the thank-you screen. |
+| `redirect_url` | string | URL to redirect patients to after completing the intake. |
+| `has_pharmacy` | boolean | Whether the intake asks patients to select a preferred pharmacy. |
+| `terms_of_service` | string | Terms of service text shown during intake. |
+| `is_show_welcome` | boolean | Whether to show the welcome/intro screen. |
+| `is_show_thanks` | boolean | Whether to show the thank-you/outro screen. |
+| `is_weight_asked` | boolean | Whether the intake collects the patient's weight. |
+| `is_height_asked` | boolean | Whether the intake collects the patient's height. |
+| `always_ask_weight_height` | boolean | If `true`, weight and height are always collected, even for returning patients. |
+| `ask_blood_pressure` | boolean | Whether to collect blood pressure. |
+| `is_body_temperature_asked` | boolean | Whether to collect body temperature. |
+| `is_oxygen_saturation_asked` | boolean | Whether to collect oxygen saturation. |
+
+Questionnaires also have customizable labels for built-in clinical questions:
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `allergies_title` | "Do you have any drug allergies or intolerances?" | Label for the allergies question |
+| `allergies_description` | (empty) | Description text below the allergies question |
+| `pregnancy_title` | "Are you pregnant or expecting to be?" | Label for the pregnancy question |
+| `pregnancy_description` | "Medications on your treatment plan might not be recommended for pregnant women." | Description text |
+| `current_medications_title` | "Are you taking any medications?" | Label for the medications question |
+| `current_medications_description` | "Many medications can interact..." | Description text |
+
+These built-in questions (allergies, pregnancy, current medications) are separate from your custom questionnaire questions — they're standard clinical data fields that MDI collects and stores directly on the patient record.
+
+## Questionnaire Question Types
+
+Each question in a questionnaire has a `type` that determines how it renders and what kind of data it collects:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `boolean` | Yes/No toggle | "Are you pregnant?" |
+| `string` | Free-text input | "Describe your symptoms" |
+| `number` | Numeric input | "What is your age?" |
+| `multiple_option` | Single or multi-select from options | "Which conditions apply to you?" |
+| `file` | File upload | "Upload your lab results" |
+
+### File Question Subtypes
+
+When the question type is `file`, the `file_type` field specifies what kind of file:
+
+| File Type | Purpose |
+|-----------|---------|
+| `lab-result` | Lab test results (blood work, etc.) |
+| `document` | General documents |
+| `review` | Documents for review |
+| `other` | Any other file type |
+
+## Understanding Critical vs. Important
+
+This is one of the most important concepts in the MDI question system, and it applies at multiple levels.
+
+### On Questions
+
+| Flag | What It Means | What It Does |
+|------|--------------|--------------|
+| `is_important` | This question matters clinically. | Highlighted in the clinician's review interface. The clinician sees it prominently. |
+| `is_critical` | This question could change the treatment decision. | Can trigger a case hold (`hold_status`) or flag the case for additional approval (`is_additional_approval_needed`). If the patient gives a concerning answer to a critical question, MDI can automatically pause the case for review. |
+
+### On Question Options (Multiple Choice)
+
+Individual options within a multiple-choice question can also be flagged:
+
+| Flag | What It Means |
+|------|--------------|
+| `is_important` | Selecting this option flags the answer as important for the clinician. |
+| `is_critical` | Selecting this option flags the answer as critical — potentially triggering a hold. |
+| `is_show_additional_field` | Selecting this option reveals a follow-up text field for more detail. |
+
+### Practical Example
+
+Imagine a weight loss intake questionnaire with a question: "Do you have any of the following conditions?"
+
+Options:
+- "High blood pressure" → `is_important: true` (clinician should note this)
+- "Heart disease" → `is_critical: true` (might disqualify the patient — triggers hold)
+- "Diabetes" → `is_important: true, is_show_additional_field: true` (show a follow-up: "What medications do you take for diabetes?")
+- "None of the above" → `is_important: false`
+
+### Other Question Display Settings
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `is_optional` | boolean | Whether the patient can skip this question. |
+| `is_visible` | boolean | Whether the question is shown (can be hidden by rules). |
+| `display_in_pdf` | boolean | Whether the answer appears in the case PDF generated for the clinician. |
+| `has_next_button` | boolean | Whether the intake form shows a "Next" button after this question. |
+| `has_back_button` | boolean | Whether to show a "Back" button. |
+| `order` | integer | Display order in the questionnaire. |
+| `default_value` | string | Pre-filled default value. |
+| `hold_status` | boolean | If `true`, answering this question puts the case on hold automatically. |
+| `is_additional_approval_needed` | boolean | If `true`, answering this question flags the case for additional approval. |
+
+## Conditional Rules
+
+This is where questionnaires get really powerful. Rules control which questions and offerings appear based on the patient's state, BMI, or answers to other questions.
+
+### Rule Types
+
+Rules use boolean logic:
+
+| Type | Behavior |
+|------|----------|
+| `and` | All requirements must be met. |
+| `or` | At least one requirement must be met. |
+| `not` | The requirement must NOT be met. |
+
+### Requirement Types
+
+Each rule has one or more requirements that check a condition:
+
+| `based_on` | What It Checks | Example |
+|------------|---------------|---------|
+| `state` | Patient's US state | Show question only for patients in California |
+| `bmi` | Patient's BMI (calculated from height + weight) | Show offering only if BMI ≤ 40 |
+| `question` | Answer to another question | Show follow-up only if patient answered "Yes" to smoking question |
+
+### BMI-Based Rules
+
+BMI rules use a `conditional_answer` operator and a `required_answer` threshold:
+
+```json
+{
+  "based_on": "bmi",
+  "conditional_answer": "<=",
+  "required_answer": "40"
+}
+```
+
+This means: "This question/offering only applies if the patient's BMI is ≤ 40." This is commonly used in weight loss programs to determine medication eligibility.
+
+### Question-Based Rules
+
+```json
+{
+  "based_on": "question",
+  "required_question_id": "94f8f739-bca8-4734-b3a8-5260400d4585",
+  "required_answer": "8f2b102b-9e04-4ad3-af40-7bb181b0fe46"
+}
+```
+
+This means: "Only show this item if the patient selected option `8f2b102b...` for question `94f8f739...`."
+
+### Rules Apply to Both Questions AND Offerings
+
+The rules system isn't just for showing/hiding questions — it also controls which offerings (medications) are included in the case. For example, you could set up a rule that only includes Semaglutide as an offering if the patient's BMI is above 27 and they're in a state where it's available.
+
+## Getting Questions for a Questionnaire
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET https://api.mdintegrations.com/v1/partner/questionnaires/QUESTIONNAIRE_ID/questions \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+questions = requests.get(
+    f"https://api.mdintegrations.com/v1/partner/questionnaires/{questionnaire_id}/questions",
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+).json()
+
+for q in questions:
+    flags = []
+    if q.get("is_important"): flags.append("IMPORTANT")
+    if q.get("is_critical"): flags.append("CRITICAL")
+    if q.get("is_optional"): flags.append("optional")
+    print(f"  [{q['type']}] {q['title']} {' '.join(flags)}")
+    for opt in q.get("options", []):
+        opt_flags = []
+        if opt.get("is_important"): opt_flags.append("important")
+        if opt.get("is_critical"): opt_flags.append("CRITICAL")
+        print(f"    - {opt['option']} {' '.join(opt_flags)}")
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.mdintegrations.com/v1/partner/questionnaires/${questionnaireId}/questions`,
+  { headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" } }
+);
+const questions = await response.json();
+questions.forEach(q => {
+  console.log(`[${q.type}] ${q.title} ${q.is_critical ? "CRITICAL" : ""} ${q.is_important ? "IMPORTANT" : ""}`);
+  (q.options || []).forEach(opt => {
+    console.log(`  - ${opt.option} ${opt.is_critical ? "CRITICAL" : ""}`);
+  });
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/questionnaires/$questionnaire_id/questions");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Accept: application/json"]);
+$questions = json_decode(curl_exec($ch), true);
+curl_close($ch);
+foreach ($questions as $q) {
+    echo "[{$q['type']}] {$q['title']}";
+    if ($q['is_critical']) echo " CRITICAL";
+    echo "\n";
+}
+```
+
+</CodeGroup>
+
+## Posting Case Questions (Direct API)
+
+If you're building your own intake form (instead of using vouchers), you post questions directly to the case after creating it:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/questions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "question": "Are you pregnant?",
+    "answer": "false",
+    "type": "boolean",
+    "important": true,
+    "is_critical": true,
+    "display_in_pdf": true,
+    "description": "Required for teratogenic medications",
+    "label": "Pregnancy Status",
+    "metadata": "intake-q-pregnancy",
+    "displayed_options": ["yes", "no"]
+  }'
+```
+
+```python Python
+import requests
+
+question = requests.post(
+    f"https://api.mdintegrations.com/v1/partner/cases/{case_id}/questions",
+    json={
+        "question": "Are you pregnant?",
+        "answer": "false",
+        "type": "boolean",
+        "important": True,
+        "is_critical": True,
+        "display_in_pdf": True,
+        "description": "Required for teratogenic medications",
+        "label": "Pregnancy Status",
+        "metadata": "intake-q-pregnancy",
+        "displayed_options": ["yes", "no"]
+    },
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+)
+```
+
+```javascript JavaScript
+const response = await fetch(`https://api.mdintegrations.com/v1/partner/cases/${caseId}/questions`, {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    question: "Are you pregnant?",
+    answer: "false",
+    type: "boolean",
+    important: true,
+    is_critical: true,
+    display_in_pdf: true,
+    description: "Required for teratogenic medications",
+    label: "Pregnancy Status",
+    metadata: "intake-q-pregnancy",
+    displayed_options: ["yes", "no"]
+  })
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/cases/$case_id/questions");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    "question" => "Are you pregnant?",
+    "answer" => "false",
+    "type" => "boolean",
+    "important" => true,
+    "is_critical" => true,
+    "display_in_pdf" => true,
+    "label" => "Pregnancy Status",
+    "metadata" => "intake-q-pregnancy",
+    "displayed_options" => ["yes", "no"]
+]));
+curl_exec($ch);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+### Case Question Field Reference
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `question` | text | **Yes** | The question text. |
+| `answer` | text | **Yes** | The patient's answer. |
+| `type` | string | **Yes** | Question data type: `boolean`, `number`, or `string`. |
+| `important` | boolean | No | Flag as important for clinician review. |
+| `is_critical` | boolean | No | Flag as critical — may trigger case hold or additional review. |
+| `display_in_pdf` | boolean | No | Include this Q&A in the case PDF generated for the clinician. |
+| `description` | text | No | Additional context about the question. |
+| `label` | string(50) | No | A short label for the question. |
+| `metadata` | text | No | Your internal reference for this question (e.g., your own question ID). |
+| `displayed_options` | array | No | The choices that were shown to the patient (for audit trail). |
+
+### Retrieving Case Questions
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/cases/CASE_ID/questions \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Returns the full list of questions and answers attached to the case. Each includes the `case_question_id`, all the fields from the post, and timestamps.
+
+## Including Questions in Case Creation
+
+You can also include questions directly in the case creation payload (instead of posting them separately after):
+
+```json
+{
+  "patient_id": "...",
+  "case_offerings": [...],
+  "case_questions": [
+    {
+      "question": "Are you currently taking any medications?",
+      "answer": "Metformin 500mg twice daily",
+      "type": "string",
+      "important": true,
+      "display_in_pdf": true,
+      "label": "Current Medications"
+    },
+    {
+      "question": "Do you have any known drug allergies?",
+      "answer": "Penicillin",
+      "type": "string",
+      "important": true,
+      "is_critical": true,
+      "display_in_pdf": true,
+      "label": "Drug Allergies"
+    },
+    {
+      "question": "Have you been diagnosed with any heart conditions?",
+      "answer": "false",
+      "type": "boolean",
+      "is_critical": true,
+      "display_in_pdf": true,
+      "displayed_options": ["yes", "no"]
+    }
+  ]
+}
+```
+
+This is the most efficient approach — create the patient, case, offerings, questions, diseases, and files all in a single API call.
+
+## Intake Progress Saving
+
+When patients fill out the intake form through a voucher, MDI automatically saves their progress. If a patient closes the browser mid-intake and returns later, they pick up where they left off. Progress is saved per-question with the answers and any uploaded file IDs.
+
+MDI also tracks completion analytics — how long each question took, and where patients drop off — which can help you optimize your intake forms.

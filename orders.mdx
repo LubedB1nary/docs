@@ -1,0 +1,120 @@
+---
+title: Orders & Fulfillment
+description: "Track prescriptions from clinician approval through pharmacy dispensing and delivery"
+---
+
+# Orders & Fulfillment
+
+Once a clinician approves a case and prescriptions are submitted to DoseSpot, the fulfillment process begins. Orders represent the pharmacy side of the equation — they track the journey from "prescription submitted" to "medication shipped."
+
+## How Orders Work
+
+The prescription-to-delivery flow looks like this:
+
+1. **Clinician approves the case** → you receive a `case_approved` webhook
+2. **Prescriptions are submitted to DoseSpot** → you receive `offering_submitted` webhooks for each prescription
+3. **An order is created** for the pharmacy fulfillment
+4. **You submit the order** to the pharmacy API → `POST .../orders/:order_id/submit`
+5. **The pharmacy processes the order** — you track status via `order_status_changed` webhooks
+6. **Tracking info is added** → `order_tracking_number_changed` webhook
+7. **The medication is delivered** to the patient
+
+## Listing Orders on a Case
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET https://api.mdintegrations.com/v1/partner/cases/CASE_ID/orders \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+orders = requests.get(
+    f"https://api.mdintegrations.com/v1/partner/cases/{case_id}/orders",
+    headers={"Authorization": "Bearer TOKEN"}
+).json()
+for order in orders:
+    print(f"Order {order['id']}: {order['status']}")
+```
+
+```javascript JavaScript
+const response = await fetch(`https://api.mdintegrations.com/v1/partner/cases/${caseId}/orders`, {
+  headers: { "Authorization": "Bearer TOKEN" }
+});
+const orders = await response.json();
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/cases/$case_id/orders");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token"]);
+$orders = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+## Submitting an Order
+
+After a case is approved and prescriptions are submitted, you can submit the order to the pharmacy:
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/orders/ORDER_ID/submit \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Cancelling an Order
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/orders/ORDER_ID/cancel \
+  -H "Authorization: Bearer TOKEN"
+```
+
+The order status changes to `cancelling` and the pharmacy is notified.
+
+## Order Events
+
+Every order status change is logged as an event:
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/cases/CASE_ID/orders/ORDER_ID/events \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Updating an Order
+
+```bash
+curl -X PATCH https://api.mdintegrations.com/v1/partner/cases/CASE_ID/orders/ORDER_ID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"tracking_number": "1Z999AA10123456784"}'
+```
+
+## Order Webhooks
+
+Rather than polling, set up webhooks for real-time order tracking:
+
+| Event | What Happened |
+|-------|---------------|
+| `offering_submitted` | Prescription sent to pharmacy. Order is ready. |
+| `order_status_changed` | Order status updated (e.g., processing, shipped, delivered). |
+| `order_tracking_number_changed` | Tracking number added or updated. |
+
+## DoseSpot Insurance Coverage
+
+Check whether a patient's insurance covers a specific medication:
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/dosespot/insurance-coverage \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Get the patient's medication history from DoseSpot:
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/dosespot/medication-history \
+  -H "Authorization: Bearer TOKEN"
+```

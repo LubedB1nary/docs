@@ -1,0 +1,160 @@
+---
+title: Embedding & White-Label
+description: "Embed MDI's intake forms, messaging, and patient workflows directly into your application"
+---
+
+# Embedding & White-Label
+
+MDI provides several patient-facing experiences — intake forms, messaging, file uploads, and more — that you can embed directly into your own application using iframes. This means your patients never leave your app, and the experience feels fully native.
+
+## How Embedding Works
+
+Every patient workflow in MDI returns a URL. You can either redirect the patient to that URL, or embed it in an iframe within your own page. When you embed, you append a query parameter to strip MDI's branding and borders so it blends seamlessly into your UI.
+
+## The `fullscreen` Parameter
+
+To embed any MDI workflow, append `?fullscreen=true` to the URL:
+
+```
+https://patient.mdintegrations.com/av/TOKEN_HERE?fullscreen=true
+```
+
+This removes MDI's page chrome (headers, footers, branding) so only the form content renders — perfect for an iframe.
+
+## Setting Up the Iframe
+
+Here's the basic HTML:
+
+```html
+<iframe
+  src="https://patient.mdintegrations.com/?token=YOUR_VOUCHER_TOKEN&fullscreen=true"
+  allow="camera; microphone"
+  style="width: 100%; height: 800px; border: none;"
+></iframe>
+```
+
+<Note>
+  The `allow="camera; microphone"` attribute is important — some intake flows require camera access for photo ID capture or video intros.
+</Note>
+
+## Embeddable Workflows
+
+### Intake Form (Voucher)
+
+The most common embed. Create a voucher via the API, then embed the `onboarding_url`:
+
+```html
+<iframe
+  src="https://patient.mdintegrations.com/?token=VOUCHER_TOKEN&fullscreen=true"
+  allow="camera; microphone"
+  style="width: 100%; height: 100vh; border: none;"
+></iframe>
+```
+
+The patient completes the entire intake — personal info, medical questions, file uploads, pharmacy selection — all within your page.
+
+### Driver's License Upload
+
+When a clinician requests a photo ID, you get a URL from the API:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET "https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/drivers-license?fullscreen=true" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    f"https://api.mdintegrations.com/v1/partner/patients/{patient_id}/drivers-license",
+    params={"fullscreen": "true"},
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+)
+url = response.json()["drivers_license_url"]
+# Embed this URL in an iframe
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.mdintegrations.com/v1/partner/patients/${patientId}/drivers-license?fullscreen=true`,
+  { headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" } }
+);
+const { drivers_license_url } = await response.json();
+// Set iframe src to drivers_license_url
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/patients/$patient_id/drivers-license?fullscreen=true");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Accept: application/json"]);
+$data = json_decode(curl_exec($ch), true);
+curl_close($ch);
+$url = $data["drivers_license_url"];
+```
+
+</CodeGroup>
+
+The response includes a `drivers_license_url` and a `verification_token`. Embed the URL in an iframe.
+
+### Intro Video Recording
+
+Some intake flows require a short video introduction from the patient:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/intro-video?fullscreen=true" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Returns an `intro_video_url` — embed it the same way. Requires `allow="camera; microphone"` on the iframe.
+
+### File Upload
+
+For requesting additional documents from the patient:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/file-url?fullscreen=true" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Returns a `file_url` for the patient to upload documents.
+
+### Patient Messaging
+
+MDI has a built-in messaging system between patients and clinicians. You can embed the messaging UI:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/auth?case_id=CASE_ID" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Returns an `auth_link` to the patient messaging portal. Embed it for in-app messaging.
+
+## Workflow Webhook Events
+
+When a clinician requests a workflow (ID upload, video, file, etc.), MDI fires a webhook with the pre-authenticated `access_link`. You can use this link directly — no need to call the API separately:
+
+```json
+{
+  "timestamp": 1700768392,
+  "event_type": "drivers_license_requested",
+  "access_link": "https://patient.mdintegrations.com/av/TOKEN?fullscreen=true",
+  "patient_id": "796fef8b-a4d5-4e19-8a58-852adfbe8709",
+  "metadata": "This is an example of metadata field."
+}
+```
+
+Available workflow webhooks: `drivers_license_requested`, `intro_video_requested`, `file_upload_requested`, `exam_requested`, `preferred_pharmacy_requested`.
+
+## Customization
+
+MDI's white-label pages use your partner account's branding configuration — logo, primary color, secondary color, and other visual settings. These are configured in the MDI partner dashboard or by the MDI team during onboarding.
+
+## Tips for a Good Embedded Experience
+
+- Set the iframe height to at least `800px` or use `100vh` to give patients enough room to fill out forms without excessive scrolling
+- Always include `allow="camera; microphone"` even if you think the current flow doesn't need it — patients may encounter prompts for photo capture or video
+- Use the `fullscreen=true` parameter on every embedded URL to strip the MDI chrome
+- Listen for the `voucher_used` or `message_created` webhooks to know when the patient has finished interacting with the embedded form, so you can update your own UI accordingly

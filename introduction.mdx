@@ -1,0 +1,108 @@
+---
+title: Introduction
+description: "Everything you need to know to get started with the MD Integrations API"
+---
+
+# MD Integrations API
+
+Welcome to the MD Integrations API documentation. Whether you're building a telehealth platform, a D2C pharmacy storefront, or integrating e-prescribing into an existing healthcare app, this is your starting point.
+
+## What is MD Integrations?
+
+MD Integrations (MDI) is a telehealth and e-prescribing platform that connects your application to a network of licensed clinicians and pharmacies. At its core, MDI handles the complex, regulated parts of digital healthcare so you don't have to:
+
+- **Clinician matching** — MDI automatically assigns licensed clinicians to review patient cases based on state licensing, specialty, and availability.
+- **E-prescribing** — Through its integration with [DoseSpot](https://www.dosespot.com/), MDI handles the entire prescription lifecycle, from clinician approval to pharmacy submission. All EPCS-certified.
+- **Patient intake** — MDI provides white-label intake forms (questionnaires) that collect patient information, medical history, and consent. You can embed these directly in your app or send patients a link.
+- **Order fulfillment** — Track prescriptions from approval through pharmacy dispensing and shipping.
+
+Think of MDI as the "backend for telehealth." You handle the patient-facing experience and commerce; MDI handles everything from the moment a prescription request is submitted until it arrives at the patient's door.
+
+## Base URL
+
+All API requests go to:
+
+```
+https://api.mdintegrations.com/v1
+```
+
+Every request must be over HTTPS. There are no exceptions.
+
+## Required Headers
+
+Every request needs at least these two headers:
+
+```
+Content-Type: application/json
+Accept: application/json
+```
+
+And for authenticated requests (which is almost everything):
+
+```
+Authorization: Bearer <your_access_token>
+```
+
+## Two Ways to Integrate
+
+There are two primary integration patterns, and most partners use a combination of both:
+
+### 1. Voucher-Based Intake (Most Common)
+
+This is the "easy button." You create a **voucher** via the API, which generates a unique intake URL. Send that URL to your patient, and they complete a white-label intake form hosted by MDI. When they finish, a case is automatically created and a clinician is assigned. You get a webhook notification.
+
+This approach requires the least engineering effort and handles patient identity verification, questionnaires, file uploads, pharmacy selection, and consent — all out of the box.
+
+### 2. Direct API Integration
+
+For full control, you can build your own patient intake experience and use the API to create patients, cases, and offerings directly. This gives you complete control over the UX but means you're responsible for collecting all the required patient information and medical history.
+
+Most partners start with voucher-based intake and layer in direct API calls as needed.
+
+## How Cases Work (The Big Picture)
+
+The central concept in MDI is the **case**. Here's the lifecycle at a high level:
+
+1. **You create a case** (either directly via API or through a voucher/intake form) with a patient, their medical questionnaire answers, and the medications or compounds you'd like prescribed.
+2. **MDI assigns a clinician** who is licensed in the patient's state and qualified for the requested treatments.
+3. **The clinician reviews the case** — they may approve it, request more information from the patient, or deny it.
+4. **When approved**, prescriptions are submitted electronically to the pharmacy through DoseSpot.
+5. **The pharmacy dispenses and ships** the medication. You can track order status through the API or webhooks.
+6. **The case is completed** once all prescriptions have been processed.
+
+At every step, you can receive real-time webhook notifications so your system stays in sync without polling.
+
+## What's in These Docs
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get from zero to your first case in 5 minutes. Authenticate, create a patient, and submit a case.
+  </Card>
+  <Card title="Intakes & Vouchers" icon="clipboard-list" href="/intakes-and-vouchers">
+    The most common integration pattern. Create intake links, embed forms, and let MDI handle the rest.
+  </Card>
+  <Card title="Case Lifecycle" icon="arrows-spin" href="/case-lifecycle">
+    Deep dive into every case status, how to manage offerings, attach files, and track progress.
+  </Card>
+  <Card title="Webhooks" icon="bell" href="/webhooks">
+    Real-time event notifications for every status change, file upload, and order update.
+  </Card>
+  <Card title="Managing Patients" icon="user" href="/patients">
+    Create, search, update, and manage patient records. Handle 2FA, messages, and preferred pharmacies.
+  </Card>
+  <Card title="Orders & Fulfillment" icon="truck" href="/orders">
+    Track prescriptions from pharmacy submission to patient delivery.
+  </Card>
+  <Card title="Embedding & White-Label" icon="code" href="/embedding">
+    Embed MDI's intake forms, messaging, and workflows directly into your app.
+  </Card>
+  <Card title="API Reference" icon="book" href="/api-reference">
+    Complete endpoint reference for all 1,000+ API endpoints.
+  </Card>
+</CardGroup>
+
+## Contact Support
+
+If you get stuck, the MDI team is responsive and helpful:
+
+- **Email**: [support@mdintegrations.com](mailto:support@mdintegrations.com)

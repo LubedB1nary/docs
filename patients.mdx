@@ -1,0 +1,308 @@
+---
+title: Managing Patients
+description: "Create, search, update, and manage patient records — the foundation of every MDI integration"
+---
+
+# Managing Patients
+
+Every case in MDI belongs to a patient. If you're using the voucher-based intake flow, patients are created automatically when they complete the intake form. But if you're building a direct API integration — or need to manage patients programmatically — this guide covers everything you need.
+
+## Creating a Patient
+
+This creates a record in both MDI and DoseSpot simultaneously. The patient is immediately ready for cases to be submitted on their behalf.
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/patients \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "email": "jane.smith@example.com",
+    "date_of_birth": "1990-01-15",
+    "gender": 2,
+    "phone_number": "5551234567",
+    "phone_type": 2,
+    "address": {
+      "address": "123 Main St",
+      "address2": "Apt 4B",
+      "city_name": "Austin",
+      "state_name": "TX",
+      "zip_code": "78701"
+    },
+    "allergies": "Penicillin",
+    "current_medications": "Metformin 500mg daily",
+    "medical_conditions": "Type 2 diabetes",
+    "metadata": "customer-12345",
+    "is_sms_enabled": true,
+    "is_email_enabled": true
+  }'
+```
+
+```python Python
+import requests
+
+patient = requests.post(
+    "https://api.mdintegrations.com/v1/partner/patients",
+    json={
+        "first_name": "Jane",
+        "last_name": "Smith",
+        "email": "jane.smith@example.com",
+        "date_of_birth": "1990-01-15",
+        "gender": 2,
+        "phone_number": "5551234567",
+        "phone_type": 2,
+        "address": {
+            "address": "123 Main St",
+            "city_name": "Austin",
+            "state_name": "TX",
+            "zip_code": "78701"
+        },
+        "allergies": "Penicillin",
+        "metadata": "customer-12345"
+    },
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+)
+patient_id = patient.json()["patient_id"]
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.mdintegrations.com/v1/partner/patients", {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    first_name: "Jane", last_name: "Smith",
+    email: "jane.smith@example.com", date_of_birth: "1990-01-15",
+    gender: 2, phone_number: "5551234567", phone_type: 2,
+    address: { address: "123 Main St", city_name: "Austin", state_name: "TX", zip_code: "78701" },
+    allergies: "Penicillin", metadata: "customer-12345"
+  })
+});
+const { patient_id } = await response.json();
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/patients");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    "first_name" => "Jane", "last_name" => "Smith",
+    "email" => "jane.smith@example.com", "date_of_birth" => "1990-01-15",
+    "gender" => 2, "phone_number" => "5551234567", "phone_type" => 2,
+    "address" => ["address" => "123 Main St", "city_name" => "Austin", "state_name" => "TX", "zip_code" => "78701"]
+]));
+$patient = json_decode(curl_exec($ch), true);
+$patient_id = $patient["patient_id"];
+curl_close($ch);
+```
+
+</CodeGroup>
+
+### Patient Fields Reference
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `first_name` | string(35) | **Yes** | |
+| `last_name` | string(35) | **Yes** | |
+| `email` | string(80) | **Yes** | Must be unique per partner account |
+| `date_of_birth` | date | **Yes** | Format: `YYYY-MM-DD` |
+| `gender` | integer | **Yes** | ISO 5218: `0` Unknown, `1` Male, `2` Female, `9` Not specified |
+| `phone_number` | string(25) | **Yes** | US format |
+| `phone_type` | integer | **Yes** | `2` = Cell, `4` = Home |
+| `address.address` | string(35) | **Yes** | Street address |
+| `address.city_name` | string(35) | **Yes** | |
+| `address.state_name` | string | **Yes** | Full name or USPS abbreviation |
+| `address.zip_code` | string(9) | **Yes** | 5 or 9 digit format |
+| `ssn` | string(11) | No | Social Security Number. Format: `AAAGGSSSS` |
+| `weight` | float | Conditional | Required for underage patients. In KG. |
+| `height` | integer | Conditional | Required for underage patients. In CM. |
+| `allergies` | text | No | Known allergies |
+| `current_medications` | text | No | Current medications |
+| `medical_conditions` | text | No | Known conditions |
+| `metadata` | string(255) | No | Your internal ID for this patient |
+| `driver_license_id` | UUID | No | File UUID of uploaded driver's license |
+| `intro_video_id` | UUID | No | File UUID of uploaded intro video |
+| `metafields` | array | No | Custom key-value pairs for storing additional patient data |
+
+### Custom Metafields
+
+The `metafields` array lets you store arbitrary structured data on the patient:
+
+```json
+"metafields": [
+  {"key": "smoke", "title": "Does the patient smoke?", "value": "false", "type": "boolean"},
+  {"key": "internal_id", "title": "Patient internal ID", "value": "id-522", "type": "string"}
+]
+```
+
+## Searching for Patients
+
+Before creating a new patient, you should check if they already exist (remember, email addresses must be unique):
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/patients/search \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"search": "jane.smith@example.com"}'
+```
+
+```python Python
+results = requests.post(
+    "https://api.mdintegrations.com/v1/partner/patients/search",
+    json={"search": "jane.smith@example.com"},
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+)
+```
+
+```javascript JavaScript
+const results = await fetch("https://api.mdintegrations.com/v1/partner/patients/search", {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({ search: "jane.smith@example.com" })
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/patients/search");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(["search" => "jane.smith@example.com"]));
+$results = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+The `search` field matches against name and email.
+
+## Updating a Patient
+
+Updates sync to both MDI and DoseSpot:
+
+```bash
+curl -X PATCH https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"phone_number": "5559876543", "address": {"address": "456 Oak Ave", "city_name": "Dallas", "state_name": "TX", "zip_code": "75201"}}'
+```
+
+You only need to include the fields you're changing — it's a partial update.
+
+## Patient 2FA Verification
+
+MDI supports email-based two-factor authentication to verify patient identity:
+
+**Step 1: Send a verification code**
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/patients/auth/2fa \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"email": "jane.smith@example.com"}'
+```
+
+If the patient exists, they'll receive a code via email.
+
+**Step 2: Validate the code**
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/patients/auth/2fa/validate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"email": "jane.smith@example.com", "code": "A3D52B"}'
+```
+
+## Patient Cases, Events, and Exams
+
+### Get all cases for a patient
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/cases \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Get patient events
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/events?page=1&per_page=25" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Get patient exams
+
+Exams contain vital signs and medical details (height, weight, allergies, medications, conditions):
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/exams \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Preferred Pharmacies
+
+Patients can maintain a list of preferred pharmacies:
+
+```bash
+# List preferred pharmacies
+curl -X GET https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/pharmacies \
+  -H "Authorization: Bearer TOKEN"
+
+# Add a preferred pharmacy
+curl -X POST https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/pharmacies \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"pharmacy_id": "PHARMACY_ID"}'
+
+# Remove a preferred pharmacy
+curl -X DELETE https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/pharmacies/PHARMACY_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Patient Messages
+
+MDI has a built-in messaging system between patients and clinical staff:
+
+```bash
+# List messages
+curl -X GET "https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/messages?case_id=CASE_ID&page=1" \
+  -H "Authorization: Bearer TOKEN"
+
+# Send a message
+curl -X POST https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/messages \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"message": "Your prescription has been sent to the pharmacy.", "case_id": "CASE_ID"}'
+```
+
+## Patient Workflows (White-Label URLs)
+
+These endpoints return pre-authenticated URLs for patient-facing experiences that you can redirect to or embed:
+
+| Endpoint | Returns | Use Case |
+|----------|---------|----------|
+| `GET /patients/:id/drivers-license` | `drivers_license_url` | Patient uploads photo ID |
+| `GET /patients/:id/intro-video` | `intro_video_url` | Patient records video intro |
+| `GET /patients/:id/file-url` | `file_url` | Patient uploads documents |
+| `GET /patients/:id/auth` | `auth_link` | Patient messaging portal |
+
+Append `?fullscreen=true` to embed these in an iframe. See the [Embedding guide](/embedding) for details.
+
+## Deleting a Patient
+
+Triggers a data deletion request. MDI sends the patient a confirmation email, and upon confirmation, deactivates the record:
+
+```bash
+curl -X DELETE https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+<Warning>
+  This is a permanent action. Once confirmed by the patient, their data is deactivated and cannot be recovered.
+</Warning>

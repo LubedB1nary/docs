@@ -1,0 +1,198 @@
+---
+title: Webhooks
+description: "Receive real-time event notifications for cases, patients, orders, vouchers, and billing — with signature verification"
+---
+
+# Webhooks
+
+Polling the API for status changes is fragile and wasteful. Webhooks let MDI push events to your server in real time — the moment a case is approved, a patient completes intake, or a tracking number is added, your system knows.
+
+## Setup
+
+To receive webhooks, you need to register your endpoint URL and a secret key with the MDI team. Contact [support@mdintegrations.com](mailto:support@mdintegrations.com) with your endpoint URL (must be HTTPS) and they'll configure it for your partner account and provide your secret key.
+
+## Payload Format
+
+Every webhook is a `POST` request to your endpoint with a JSON body:
+
+```json
+{
+  "timestamp": 1666384936,
+  "event_type": "case_approved",
+  "case_id": "26f3d453-09ff-41cb-9fc6-724d1b77277c",
+  "metadata": "Shopify Order #12345"
+}
+```
+
+The fields vary by event type, but every payload includes `timestamp`, `event_type`, and usually `metadata` (the string you passed when creating the case or voucher).
+
+## Verifying Webhook Signatures
+
+Every webhook request includes a `Signature` header that you should verify to ensure the payload hasn't been tampered with. MDI creates the signature using your secret key as a salt with SHA-256.
+
+<CodeGroup>
+
+```python Python
+import hashlib
+import hmac
+
+def verify_webhook(payload_body: str, signature_header: str, secret_key: str) -> bool:
+    """Verify the webhook signature using HMAC-SHA256."""
+    expected = hashlib.sha256(
+        (secret_key + payload_body).encode('utf-8')
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature_header)
+
+# In your webhook handler:
+# signature = request.headers.get("Signature")
+# is_valid = verify_webhook(request.body, signature, "your-secret-key")
+```
+
+```javascript JavaScript
+const crypto = require("crypto");
+
+function verifyWebhook(payloadBody, signatureHeader, secretKey) {
+  const expected = crypto
+    .createHash("sha256")
+    .update(secretKey + payloadBody)
+    .digest("hex");
+  return crypto.timingSafeEqual(
+    Buffer.from(expected),
+    Buffer.from(signatureHeader)
+  );
+}
+
+// In your webhook handler:
+// const isValid = verifyWebhook(req.body, req.headers["signature"], "your-secret-key");
+```
+
+```php PHP
+<?php
+function verifyWebhook(string $payloadBody, string $signatureHeader, string $secretKey): bool {
+    $expected = hash('sha256', $secretKey . $payloadBody);
+    return hash_equals($expected, $signatureHeader);
+}
+
+// In your webhook handler:
+// $signature = $_SERVER['HTTP_SIGNATURE'];
+// $payload = file_get_contents('php://input');
+// $isValid = verifyWebhook($payload, $signature, 'your-secret-key');
+```
+
+</CodeGroup>
+
+<Warning>
+  Always use constant-time comparison (like `hmac.compare_digest` in Python, `crypto.timingSafeEqual` in Node.js, or `hash_equals` in PHP) to prevent timing attacks.
+</Warning>
+
+## Best Practices for Webhook Handlers
+
+Your webhook endpoint should follow these rules:
+
+1. **Return 200 immediately.** Process the event asynchronously (in a background job or queue). If your endpoint takes too long to respond, MDI may retry the delivery.
+2. **Handle retries gracefully.** Webhook deliveries may be retried if your endpoint is temporarily unavailable. Use `timestamp` + `event_type` + entity ID to deduplicate.
+3. **Verify the signature.** Always validate the `Signature` header before processing the event.
+4. **Ignore unknown event types.** MDI may add new event types in the future. Your handler should silently ignore event types it doesn't recognize.
+5. **Use metadata for correlation.** The `metadata` field contains whatever string you passed when creating the case or voucher — use it to tie webhook events back to your internal records.
+
+## Complete Event Reference
+
+### Case Lifecycle Events
+
+| Event Type | Description | Key Fields |
+|-----------|-------------|------------|
+| `case_created` | Case has been submitted. | `case_id`, `metadata` |
+| `case_assigned_to_clinician` | Clinician assigned to review the case. | `case_id`, `metadata` |
+| `case_processing` | Clinician has started reviewing. | `case_id`, `metadata` |
+| `case_waiting` | Clinician needs more info from patient. | `case_id`, `metadata` |
+| `case_transferred_to_support` | Case escalated to MDI support. | `case_id`, `metadata` |
+| `case_approved` | Clinician approved the prescriptions. | `case_id`, `metadata` |
+| `case_completed` | All prescriptions confirmed by pharmacy. | `case_id`, `metadata` |
+| `case_cancelled` | Case was cancelled. | `case_id`, `metadata` |
+
+### Case File & Tag Events
+
+| Event Type | Description | Key Fields |
+|-----------|-------------|------------|
+| `case_file_added` | File attached to a case. | `case_id`, `file_id` |
+| `case_file_deleted` | File removed from a case. | `case_id`, `file_id` |
+| `file_lab_results_processed` | Lab results file parsed. | `case_id`, `file_id`, `status` |
+| `medical_necessity_file_generated` | Medical necessity letter PDF created. | `file_id`, `patient_id` |
+| `case_tag_attached` | Tag added to a case. | `case_id`, `tag_id` |
+| `clinical_note_created` | Note added to a case. | `case_id`, `note_id` |
+
+### Prescription & Order Events
+
+| Event Type | Description | Key Fields |
+|-----------|-------------|------------|
+| `offering_submitted` | Prescription sent to pharmacy. | `case_id`, `offerings[]` |
+| `prescription_insurance_coverage_updated` | Insurance info updated. | `case_id`, `prescription_id` |
+| `order_status_changed` | Order fulfillment status changed. | `case_id`, `order_id` |
+| `order_tracking_number_changed` | Tracking number added/updated. | `case_id`, `order_id`, `tracking_number` |
+
+### Patient Events
+
+| Event Type | Description | Key Fields |
+|-----------|-------------|------------|
+| `patient_created` | New patient registered. | `patient_id` |
+| `patient_modified` | Patient record updated. | `patient_id` |
+| `patient_deleted` | Patient deletion initiated. | `patient_id` |
+| `patient_tag_attached` | Tag added to patient. | `patient_id`, `tag_id` |
+| `patient_opt_out` | Patient changed notification prefs. | `patient_id`, `channel` |
+| `patient_insurance_coverage_updated` | Insurance info updated. | `patient_id` |
+
+### Voucher Events
+
+| Event Type | Description | Key Fields |
+|-----------|-------------|------------|
+| `voucher_created` | Voucher created. | `voucher_id`, `patient_id` |
+| `voucher_updated` | Voucher modified. | `voucher_id`, `patient_id` |
+| `voucher_used` | Patient completed intake. Case created. | `voucher_id`, `case_id`, `patient_id` |
+| `voucher_reminder_sent` | Intake reminder sent to patient. | `voucher_id`, `access_link` |
+| `voucher_expired` | Voucher expired. | `voucher_id`, `patient_id` |
+
+### Workflow Request Events
+
+These fire when a clinician requests additional information from the patient. The `access_link` is a pre-authenticated URL you can send directly to the patient.
+
+| Event Type | Description |
+|-----------|-------------|
+| `drivers_license_requested` | Patient asked to upload photo ID. |
+| `intro_video_requested` | Patient asked to record intro video. |
+| `file_upload_requested` | Patient asked to upload a document. |
+| `exam_requested` | Patient asked to update exam details. |
+| `preferred_pharmacy_requested` | Patient asked to select pharmacy. |
+
+### Messaging & Notification Events
+
+| Event Type | Description | Key Fields |
+|-----------|-------------|------------|
+| `message_created` | Message sent to/from patient. | `message_id`, `patient_id`, `user_type` |
+| `notification_sent` | Notification dispatched to patient. | `patient_id`, `notification_id` |
+
+### Billing Events
+
+All billing events use `event_type: "partner_charge"` with a `charge_type` field to differentiate:
+
+| Charge Type | Description |
+|------------|-------------|
+| `case_completed` | Charge for a completed case. |
+| `case_cancelled` | Charge for a cancelled case. |
+| `change_chargeable` | Charge for a chargeability change. |
+| `text_message` | Charge for an outbound SMS. |
+| `vouched_run` | Charge for identity verification. |
+| `additional_charge` | Miscellaneous charge. |
+
+**Example billing webhook:**
+
+```json
+{
+  "timestamp": 1733258743,
+  "event_type": "partner_charge",
+  "encounter_id": "5124ae37-19db-464e-870d-49a9a33a5153",
+  "case_id": "5124ae37-19db-464e-870d-49a9a33a5153",
+  "patient_id": "patient-uuid",
+  "charge_type": "case_completed",
+  "charge_amount": "25.00"
+}
+```

@@ -1,0 +1,340 @@
+---
+title: Messaging
+description: "Communicate between patients, clinicians, and support staff through MDI's built-in messaging system"
+---
+
+# Messaging
+
+MDI has a full messaging system that allows communication between patients, clinicians, and support staff. As a partner, you can send messages on behalf of your support team, read the full conversation thread, attach files to messages, and get notified in real time when new messages arrive.
+
+This is especially important during the case review process. When a clinician moves a case to "Waiting" status, they often send the patient a message explaining what additional information they need. Your integration should surface these messages to the patient so they can respond and keep the case moving.
+
+## How Messaging Works
+
+Messages in MDI work like a conversation thread tied to a patient. Each message has a `channel` that determines who can see it:
+
+| Channel | Who Can See It |
+|---------|---------------|
+| `patient` | The patient, their assigned clinician, and support staff. This is the primary channel for clinical conversations. |
+| `support` | Internal — between clinicians and support staff. The patient cannot see these messages. |
+
+Messages also have a `sender_type` that identifies who sent it:
+
+| Sender Type | Description |
+|------------|-------------|
+| `patient` | Sent by the patient. |
+| `partner` | Sent by your partner system (via the API). |
+| `system` | Automated system messages. |
+
+When a clinician sends a message to the patient (through the MDI clinician app), the `user_type` will be `App\Models\Clinician`. When support staff sends one, it'll be `App\Models\SupportStaff`.
+
+## Listing Messages
+
+Retrieve the conversation thread for a patient. Messages are paginated and can be filtered by channel:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET "https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/messages?channel=patient&page=1&per_page=25" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+messages = requests.get(
+    f"https://api.mdintegrations.com/v1/partner/patients/{patient_id}/messages",
+    params={"channel": "patient", "page": 1, "per_page": 25},
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+).json()
+
+for msg in messages.get("data", []):
+    sender = msg.get("user", {})
+    sender_name = f"{sender.get('first_name', '')} {sender.get('last_name', '')}".strip()
+    print(f"[{msg['created_at'][:16]}] {sender_name}: {(msg['text'] or '')[:100]}")
+    if msg.get("read_at"):
+        print(f"  Read at: {msg['read_at']}")
+    if msg.get("files"):
+        print(f"  Attachments: {len(msg['files'])} file(s)")
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.mdintegrations.com/v1/partner/patients/${patientId}/messages?channel=patient&page=1&per_page=25`,
+  { headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" } }
+);
+const { data: messages } = await response.json();
+messages.forEach(msg => {
+  const sender = msg.user || {};
+  console.log(`[${msg.created_at.slice(0,16)}] ${sender.first_name} ${sender.last_name}: ${(msg.text || '').slice(0,100)}`);
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/patients/$patient_id/messages?channel=patient&page=1&per_page=25");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Accept: application/json"]);
+$messages = json_decode(curl_exec($ch), true);
+curl_close($ch);
+foreach ($messages["data"] as $msg) {
+    echo "[{$msg['created_at']}] {$msg['user']['first_name']} {$msg['user']['last_name']}: " . substr($msg['text'] ?? '', 0, 100) . "\n";
+}
+```
+
+</CodeGroup>
+
+### What a Message Looks Like
+
+Here's a typical message from a clinician to a patient (this is a real example from the API):
+
+```json
+{
+  "id": "90e96706-7620-4b3f-b0fc-8f7d520a013b",
+  "patient_id": "757479af-30a7-4725-a46a-4a31fb2b813a",
+  "channel": "patient",
+  "text": "Hi Jane, I'm Dr. Thomas Bottoni MD, a board certified physician licensed in Florida. I've reviewed your health information and I think you likely have ED, which can benefit from Sildenafil 20mg tablets. Start with 1-2 tablets and do not exceed a maximum of 100mg per day...",
+  "user_type": "App\\Models\\Clinician",
+  "user_id": "cbd247ab-65e9-433f-a1a3-21558299d973",
+  "reference_message_id": null,
+  "replied_at": null,
+  "dismissed_at": null,
+  "emailed_at": "2023-08-30T15:11:21.000000Z",
+  "created_at": "2023-08-30T15:11:20.000000Z",
+  "read_at": null,
+  "user": {
+    "id": "cbd247ab-65e9-433f-a1a3-21558299d973",
+    "first_name": "Thomas",
+    "last_name": "Bottoni"
+  },
+  "files": []
+}
+```
+
+Key fields to pay attention to:
+
+- **`text`** — The message content. This is the clinician's note to the patient, or the patient's response.
+- **`user_type` and `user`** — Who sent it. Use this to show the correct avatar/name in your UI.
+- **`read_at`** — `null` if unread, timestamp if the message has been read.
+- **`emailed_at`** — When MDI sent an email notification about this message.
+- **`reference_message_id`** — If this message is a reply to another message, this links to the original.
+- **`files`** — Any file attachments on the message.
+
+## Sending a Message
+
+You can send messages to the conversation as the partner. This is useful for automated notifications, support responses, or forwarding information from your own systems:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/messages \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "channel": "patient",
+    "text": "Hi Jane, your prescription has been approved and sent to Curexa Pharmacy. You should receive a shipping notification within 2-3 business days.",
+    "sender_type": "partner",
+    "files": [
+      {"id": "e30e5ecb-a543-4877-a483-0a1b065bbc59"}
+    ]
+  }'
+```
+
+```python Python
+import requests
+
+message = requests.post(
+    f"https://api.mdintegrations.com/v1/partner/patients/{patient_id}/messages",
+    json={
+        "channel": "patient",
+        "text": "Hi Jane, your prescription has been approved and sent to Curexa Pharmacy. You should receive a shipping notification within 2-3 business days.",
+        "sender_type": "partner",
+        "files": [
+            {"id": "e30e5ecb-a543-4877-a483-0a1b065bbc59"}
+        ]
+    },
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+)
+message_id = message.json()["id"]
+```
+
+```javascript JavaScript
+const response = await fetch(`https://api.mdintegrations.com/v1/partner/patients/${patientId}/messages`, {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    channel: "patient",
+    text: "Hi Jane, your prescription has been approved and sent to Curexa Pharmacy.",
+    sender_type: "partner",
+    files: [{ id: "e30e5ecb-a543-4877-a483-0a1b065bbc59" }]
+  })
+});
+const { id: messageId } = await response.json();
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/patients/$patient_id/messages");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    "channel" => "patient",
+    "text" => "Hi Jane, your prescription has been approved and sent to Curexa Pharmacy.",
+    "sender_type" => "partner",
+    "files" => [["id" => "e30e5ecb-a543-4877-a483-0a1b065bbc59"]]
+]));
+$message = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+### Message Payload Reference
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `channel` | string | **Yes** | `"patient"` for patient-visible messages, `"support"` for internal. |
+| `text` | string | No | The message body. Can be `null` if you're sending only file attachments. |
+| `sender_type` | string | No | `"patient"`, `"partner"`, or `"system"`. Determines how the message appears in the conversation. |
+| `reference_message_id` | UUID | No | The ID of a message this is replying to. Creates a threaded reply. |
+| `files` | array | No | Array of file objects, each with an `id` (UUID). Files must be uploaded first via `POST /v1/partner/files`. |
+
+## Reading and Managing Messages
+
+### Get a specific message
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/messages/MESSAGE_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Mark a message as read
+
+When your patient views a message in your app, mark it as read so clinicians know the patient has seen it:
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/messages/MESSAGE_ID/read \
+  -H "Authorization: Bearer TOKEN"
+```
+
+This sets the `read_at` timestamp on the message.
+
+### Mark a message as unread
+
+If you need to revert:
+
+```bash
+curl -X DELETE https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/messages/MESSAGE_ID/unread \
+  -H "Authorization: Bearer TOKEN"
+```
+
+This clears the `read_at` timestamp.
+
+## Messaging Webhooks
+
+Set up webhooks to know instantly when new messages arrive:
+
+| Event | Description |
+|-------|-------------|
+| `message_created` | A new message was sent in the patient's conversation. Could be from the clinician, support staff, or patient. |
+| `notification_sent` | A notification was dispatched to the patient (email, SMS, or in-app). |
+
+### `message_created` webhook payload
+
+```json
+{
+  "timestamp": 1666384936,
+  "event_type": "message_created",
+  "message_id": "a8f51b2a-c544-4088-bc46-d1da54e93410",
+  "patient_id": "b4a1e9cd-4f0b-4787-b77f-1bfb7293f6aa",
+  "user_type": "App\\Models\\Clinician",
+  "user_id": "cbd247ab-65e9-433f-a1a3-21558299d973",
+  "metadata": "This is an example of metadata field."
+}
+```
+
+The `user_type` tells you who sent the message. If it's `App\Models\Clinician`, the clinician sent a message to the patient — your app should notify the patient. If it's `App\Models\Patient`, the patient replied — you might want to log that or update your UI.
+
+## Embedding the Messaging UI
+
+If you don't want to build your own messaging interface, you can embed MDI's built-in messaging portal directly in your app:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/patients/PATIENT_ID/auth?case_id=CASE_ID" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+This returns an `auth_link` — a pre-authenticated URL to MDI's patient messaging portal. Embed it in an iframe:
+
+```html
+<iframe
+  src="https://message.mdintegrations.com/messages/TOKEN?case_id=CASE_ID"
+  style="width: 100%; height: 600px; border: none;"
+></iframe>
+```
+
+See the [Embedding guide](/embedding) for more details on iframe setup.
+
+## Notifications
+
+MDI also has a partner notification system for broader alerts (not just messages):
+
+```bash
+# List all partner notifications
+curl -X GET https://api.mdintegrations.com/v1/partner/notifications \
+  -H "Authorization: Bearer TOKEN"
+
+# Get a specific notification
+curl -X GET https://api.mdintegrations.com/v1/partner/notifications/NOTIFICATION_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Notifications include events like new patient messages, case status changes, and other partner-relevant alerts. Each notification has a `title`, `preview`, and metadata about the source event.
+
+## Common Messaging Patterns
+
+### "Waiting" status → Message → Patient response flow
+
+This is the most common messaging scenario:
+
+1. Clinician reviews the case and needs more information
+2. Clinician sets the case to **Waiting** status and sends a message: *"I need a photo of your current lab results"*
+3. You receive a `case_waiting` webhook and a `message_created` webhook
+4. Your app notifies the patient about the message
+5. Patient reads the message (you call `POST .../messages/MESSAGE_ID/read`)
+6. Patient sends a reply with the lab results attached (either through your app via the API, or through MDI's embedded messaging portal)
+7. Clinician receives the reply, reviews the labs, and moves the case forward
+
+### Automated status update messages
+
+Many partners send automated messages at key status changes:
+
+```python
+# When case is approved (case_approved webhook received):
+requests.post(
+    f"https://api.mdintegrations.com/v1/partner/patients/{patient_id}/messages",
+    json={
+        "channel": "patient",
+        "text": "Great news! Your prescription has been approved by the clinician and is being sent to the pharmacy.",
+        "sender_type": "partner"
+    },
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+)
+
+# When order ships (order_tracking_number_changed webhook received):
+requests.post(
+    f"https://api.mdintegrations.com/v1/partner/patients/{patient_id}/messages",
+    json={
+        "channel": "patient",
+        "text": f"Your medication has shipped! Tracking number: {tracking_number}",
+        "sender_type": "system"
+    },
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+)
+```
+
+<Tip>
+  Use `sender_type: "system"` for automated messages and `sender_type: "partner"` for messages from your human support team. This helps the patient understand who they're communicating with.
+</Tip>

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "MD Integrations",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#0D6EFD",
+    "light": "#4D94FF",
+    "dark": "#0044CC"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:support@mdintegrations.com"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Dashboard",
+      "href": "https://www.mdintegrations.com"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "authentication",
+              "errors",
+              "terminology"
+            ]
+          },
+          {
+            "group": "Core Workflows",
+            "pages": [
+              "intakes-and-vouchers",
+              "case-lifecycle",
+              "after-the-prescription",
+              "patients",
+              "orders",
+              "messaging"
+            ]
+          },
+          {
+            "group": "Clinical Data",
+            "pages": [
+              "questionnaires-and-questions",
+              "patient-health-data",
+              "offerings-and-medications"
+            ]
+          },
+          {
+            "group": "Organization & Management",
+            "pages": [
+              "case-management",
+              "tags-and-notes"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "files-and-pharmacies",
+              "reference-data",
+              "embedding",
+              "webhooks",
+              "testing-and-sandbox"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "openapi": "openapi.json"
+      }
+    ]
+  },
+  "api": {
+    "playground": {
+      "display": "interactive"
+    },
+    "examples": {
+      "languages": [
+        "curl",
+        "python",
+        "javascript",
+        "php"
+      ]
+    }
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true
+  }
+}

@@ -1,0 +1,398 @@
+---
+title: Offerings & Medications
+description: "Understanding the four offering types — DoseSpot medications, Boothwyn compounds, supplies, and services — plus how to search the drug database and configure prescriptions"
+---
+
+# Offerings & Medications
+
+"Offerings" are the treatments that can be prescribed in a case. This is one of the most important concepts in MDI, and also one of the most confusing if you don't understand the four distinct offering types and how they interact with DoseSpot, pharmacies, and your product catalog.
+
+## The Four Offering Types
+
+Every offering in MDI is one of these types:
+
+| Type | What It Is | Routed Through | Example |
+|------|-----------|---------------|---------|
+| **DoseSpot Medication** | An FDA-approved medication from the DoseSpot drug database | DoseSpot → Retail pharmacy | Sildenafil 20mg tablets, Finasteride 1mg |
+| **Boothwyn Compound** | A custom-compounded medication | Boothwyn compounding pharmacy | Semaglutide injection (custom dose), custom topical formulations |
+| **Supply** | A medical device or non-prescription supply from DoseSpot | DoseSpot → Pharmacy | Blood pressure monitors, glucose test strips, masks |
+| **Service** | A non-prescription service (generates a PDF, not a pharmacy order) | PDF document only | Lab orders, referral letters, medical certificates |
+
+Understanding which type to use matters because:
+- The **prescribing workflow** is different (DoseSpot meds go through e-prescribing, compounds go through Boothwyn, services generate PDFs)
+- The **data you need to provide** is different (medications need NDCs and dispense units, compounds need SKUs, services just need a title)
+- The **fulfillment path** is different (retail pharmacy vs. compounding pharmacy vs. no pharmacy at all)
+
+## Listing Your Configured Offerings
+
+Your MDI team configures offerings for your partner account. List them all:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET https://api.mdintegrations.com/v1/partner/offerings \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+offerings = requests.get(
+    "https://api.mdintegrations.com/v1/partner/offerings",
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+).json()
+
+for o in offerings:
+    # Determine type from which ID field is present
+    if o.get("partner_medication_id"):
+        otype = "medication"
+    elif o.get("partner_compound_id"):
+        otype = "compound"
+    elif o.get("partner_supply_id"):
+        otype = "supply"
+    else:
+        otype = "service"
+
+    print(f"[{otype}] {o.get('title', o.get('name'))}")
+    print(f"  ID: {o.get('partner_medication_id') or o.get('partner_compound_id') or o.get('partner_supply_id') or 'N/A'}")
+    print(f"  Active: {o.get('active')}, Directions: {o.get('directions', 'N/A')}")
+    if o.get('pharmacy_name'):
+        print(f"  Pharmacy: {o['pharmacy_name']} (ID: {o.get('pharmacy_id')})")
+```
+
+```javascript JavaScript
+const offerings = await fetch("https://api.mdintegrations.com/v1/partner/offerings", {
+  headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" }
+}).then(r => r.json());
+
+offerings.forEach(o => {
+  const type = o.partner_medication_id ? "medication"
+    : o.partner_compound_id ? "compound"
+    : o.partner_supply_id ? "supply" : "service";
+  console.log(`[${type}] ${o.title || o.name} — ${o.directions}`);
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/offerings");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Accept: application/json"]);
+$offerings = json_decode(curl_exec($ch), true);
+curl_close($ch);
+foreach ($offerings as $o) {
+    $type = isset($o["partner_medication_id"]) ? "medication"
+        : (isset($o["partner_compound_id"]) ? "compound"
+        : (isset($o["partner_supply_id"]) ? "supply" : "service"));
+    echo "[$type] " . ($o["title"] ?? $o["name"]) . "\n";
+}
+```
+
+</CodeGroup>
+
+### Offering Response Fields
+
+Each offering includes the following key fields:
+
+| Field | Description |
+|-------|-------------|
+| `partner_medication_id` / `partner_compound_id` / `partner_supply_id` | The ID for this offering (only one will be present, indicating the type). |
+| `title` | Display title for the offering. |
+| `name` | The drug or product name. |
+| `ndc` | National Drug Code (for medications). |
+| `dosespot_rxcui` | DoseSpot's RxCUI identifier. |
+| `strength` | Drug strength (e.g., "10 mg/mL"). |
+| `directions` | Default prescribing directions. |
+| `quantity` | Default quantity. |
+| `days_supply` | Default days supply. |
+| `refills` | Default number of refills. |
+| `dispense_unit` | Unit name (e.g., "Tablet", "Capsule", "Bottle"). |
+| `dispense_unit_id` | DoseSpot dispense unit ID. |
+| `pharmacy_id` | Default pharmacy DoseSpot ID (if forced). |
+| `pharmacy_name` | Default pharmacy name. |
+| `force_pharmacy` | If `true`, prescriptions always go to this pharmacy regardless of patient preference. |
+| `active` | Whether the offering is currently available. |
+| `is_additional_approval_needed` | If `true`, cases with this offering require extra clinical approval. |
+| `clinical_note` | Default clinical note shown to the clinician. |
+| `thank_you_note` | Message shown to the patient after the offering is prescribed. |
+| `pharmacy_notes` | Notes sent to the pharmacy with the prescription. |
+| `metadata` | Your internal reference data. |
+| `allow_substitutions` | Whether the pharmacy can substitute a generic. |
+
+## Searching the DoseSpot Drug Database
+
+If you need to look up medications dynamically (for example, to build a medication search in your admin panel), MDI proxies DoseSpot's drug database:
+
+### Search medications by name
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET "https://api.mdintegrations.com/v1/partner/medications/search?name=Isotretinoin" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+results = requests.get(
+    "https://api.mdintegrations.com/v1/partner/medications/search",
+    params={"name": "Isotretinoin"},
+    headers={"Authorization": "Bearer TOKEN"}
+).json()
+
+for med in results:
+    print(f"{med['name']} (NDC: {med['ndc']}, Strength: {med['strength']})")
+```
+
+```javascript JavaScript
+const results = await fetch(
+  "https://api.mdintegrations.com/v1/partner/medications/search?name=Isotretinoin",
+  { headers: { "Authorization": "Bearer TOKEN" } }
+).then(r => r.json());
+results.forEach(med => console.log(`${med.name} — NDC: ${med.ndc}`));
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/medications/search?name=Isotretinoin");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token"]);
+$results = json_decode(curl_exec($ch), true);
+curl_close($ch);
+foreach ($results as $med) {
+    echo "{$med['name']} — NDC: {$med['ndc']}\n";
+}
+```
+
+</CodeGroup>
+
+Response:
+
+```json
+[
+  {
+    "dispensable_drug_id": null,
+    "routed_dose_form_drug_id": null,
+    "ndc": "70710102308",
+    "rx_cui": null,
+    "name_with_route_dose_form": "ISOtretinoin Oral Capsule",
+    "strength": "20 MG",
+    "is_obsolete": false,
+    "name": "ISOtretinoin Oral Capsule 20 MG"
+  }
+]
+```
+
+### Get detailed medication info
+
+Once you have a medication from search results, get full prescribing details:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/medications/select?name=ISOtretinoin+Oral+Capsule&strength=20+MG" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+This returns comprehensive drug information:
+
+```json
+{
+  "ndc": "00245057001",
+  "rx_cui": "197843",
+  "display_name": "ISOtretinoin (Eqv-Absorica) 10 mg capsule",
+  "route": "oral",
+  "dose_form": "capsule",
+  "strength": "10 mg",
+  "dispense_unit_id": 4,
+  "brand": false,
+  "otc": false,
+  "drug_classification": "antineoplastics",
+  "schedule": "0",
+  "state_schedules": [],
+  "generic_product_name": "ISOtretinoin 10 mg oral capsule",
+  "compound_ingredients": null
+}
+```
+
+The `dispense_unit_id` from this response is what you'll need when creating prescriptions.
+
+### Search supplies
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/supplies/search?name=Masks" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Search Boothwyn compounds
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/boothwyn/search?name=Semaglutide" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Dispense Units
+
+Dispense units define how a medication is measured and dispensed — tablets, capsules, milliliters, bottles, etc. You need the correct `dispense_unit_id` when creating prescriptions.
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/dispense-units \
+  -H "Authorization: Bearer TOKEN"
+```
+
+You can also search by name:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/dispense-units?name=Tablet" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Response:
+
+```json
+[
+  {
+    "dispense_unit_id": 1,
+    "name": "Capsule",
+    "abbreviation": "AV",
+    "singular": "Capsule",
+    "plural": "Capsules",
+    "singular_or_plural": "Capsule(s)",
+    "active": true
+  }
+]
+```
+
+Common dispense units:
+
+| ID | Name | Used For |
+|----|------|----------|
+| 1 | Capsule | Oral capsules |
+| 2 | Bottle | Liquid medications |
+| 4 | Each | Individual items |
+| 26 | Tablet | Oral tablets |
+| 62 | Syringe | Injectable medications |
+
+<Note>
+  These IDs may vary between sandbox and production environments. Always look them up dynamically.
+</Note>
+
+## Adding Offerings to Cases
+
+When creating a case via the API, you add offerings in the `case_offerings` or `case_services` array. The payload differs by offering type:
+
+### DoseSpot Medication
+
+```json
+{
+  "case_prescriptions": [
+    {
+      "dosespot_medication_id": 310964,
+      "refills": 2,
+      "quantity": 1.5,
+      "days_supply": 30,
+      "directions": "Take one tablet daily with food",
+      "dispense_unit_id": 26,
+      "pharmacy_id": 13012,
+      "no_substitutions": false,
+      "pharmacy_notes": "Patient prefers generic if available",
+      "effective_date": "2026-01-15"
+    }
+  ]
+}
+```
+
+### Boothwyn Compound
+
+```json
+{
+  "case_services": [
+    {
+      "description": "Semaglutide 2.5mg/0.5mL injection",
+      "service_type": "compound",
+      "title": "Semaglutide Injection",
+      "sku": "SEM-25-INJ",
+      "additional_note": "Start at lowest dose, titrate up weekly",
+      "clinical_notes": "Monitor for GI side effects",
+      "thank_you_note": "Your compounded medication will ship within 3-5 business days.",
+      "pharmacy_fax_number": "+15551234567"
+    }
+  ]
+}
+```
+
+### Supply / Device
+
+```json
+{
+  "case_services": [
+    {
+      "description": "Blood pressure monitor for home use",
+      "service_type": "device",
+      "title": "BP Monitor",
+      "additional_note": "Take readings morning and evening",
+      "include_drivers_license": false,
+      "send_pdf_file_automatically": false
+    }
+  ]
+}
+```
+
+### Service (PDF only)
+
+```json
+{
+  "case_services": [
+    {
+      "description": "Comprehensive metabolic panel lab order",
+      "service_type": "service",
+      "title": "Lab Order - CMP",
+      "clinical_notes": "Fasting required",
+      "send_pdf_file_automatically": true
+    }
+  ]
+}
+```
+
+## Updating Offerings on an Existing Case
+
+After a case is created, you can update individual offerings:
+
+```bash
+curl -X PATCH https://api.mdintegrations.com/v1/partner/cases/CASE_ID/offerings/OFFERING_ID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "product": {
+      "quantity": 3,
+      "directions": "Take one tablet three times daily",
+      "days_supply": 30
+    }
+  }'
+```
+
+## Specialties
+
+Offerings are organized under specialties — medical categories like "Weight Loss", "Sexual Health", "Dermatology", etc. Specialties determine which clinicians can review cases and which questionnaires and offerings are available.
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/specialties \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "id": "a0d68ba0-1813-4dcd-8b1d-cb8d422dc031",
+      "title": "Weight Loss",
+      "is_public": true,
+      "created_at": "2025-06-30T21:53:58.000000Z"
+    }
+  ]
+}
+```
+
+Specialties are configured by your MDI team. They link together your questionnaires, offerings, and clinician pools.

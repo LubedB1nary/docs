@@ -1,0 +1,68 @@
+---
+title: Terminology
+description: "Key concepts and terminology used throughout the MD Integrations API"
+---
+
+# Terminology
+
+MDI has its own vocabulary that maps to real-world telehealth concepts. Understanding these terms will make the rest of the documentation (and the API responses) much easier to follow.
+
+## Core Concepts
+
+### Patient
+The person seeking medical treatment. Patients are registered in both MDI and DoseSpot simultaneously. Each patient has a unique record per partner — if the same person is a patient of two different partners, they'll have two separate patient records.
+
+### Clinician
+A licensed medical practitioner (doctor, NP, PA) who reviews cases and writes prescriptions. MDI maintains a network of clinicians licensed across multiple states. You don't need to find or manage clinicians — MDI assigns them automatically based on the patient's state, the treatment type, and clinician availability.
+
+### Partner
+That's you. A partner is a company that integrates with MDI to offer telehealth services to its customers. Partners have their own branding, offerings, questionnaires, and webhook endpoints.
+
+### Case
+The central unit of work in MDI. A case represents a request for a clinician to evaluate a patient and potentially prescribe treatment. Cases contain offerings, questionnaire answers, clinical notes, files, and disease codes. A case belongs to one patient and is assigned to one clinician.
+
+### Offering
+A medication, compound, supply, or service that can be attached to a case. Offerings are configured in your partner dashboard and represent the products you sell. When a clinician approves a case, the offerings become prescriptions that are sent to a pharmacy.
+
+### Medication
+A standard pharmaceutical drug available through DoseSpot (e.g., Isotretinoin, Finasteride). These are commercially manufactured, FDA-approved drugs.
+
+### Compound
+A custom-mixed medication prepared specifically for a patient by a compounding pharmacy (e.g., Semaglutide 5mg/mL). Unlike standard medications, compounds are not mass-produced.
+
+### Supply
+A medical supply that doesn't require a traditional prescription but may need clinician authorization (e.g., needles, masks, medical devices).
+
+### Prescription
+The official clinician authorization for a patient to receive a specific medication. Prescriptions are submitted electronically to pharmacies through DoseSpot. A case can have multiple prescriptions.
+
+### Voucher
+A pre-configured intake link that you create via the API. When a patient opens the link, they complete a white-label intake form, and MDI automatically creates a patient record and case. Vouchers are the most common way partners onboard patients.
+
+### Questionnaire
+An intake form that collects patient information, medical history, and consent. Questionnaires are configured in your partner dashboard and consist of ordered questions with various types (text, boolean, multiple choice, file upload, etc.).
+
+## Status-Related Terms
+
+### Hold Status
+A flag on cases and vouchers that prevents the case from entering the MDI clinician review flow. Useful when you need to do something before the case should be reviewed (like collecting payment). Set `hold_status: true` when creating a case or voucher, then release it when ready.
+
+### Demo
+A flag on vouchers that creates test data. Demo vouchers don't create real patients or cases, don't expire, and don't trigger charges. Use these during development and testing.
+
+### Chargeable
+A boolean flag on cases indicating whether the case should be billed. Most cases are chargeable, but you might set this to `false` for courtesy cases or internal testing.
+
+## DoseSpot-Specific Terms
+
+### DoseSpot
+The e-prescribing system integrated with MDI. All electronic prescriptions flow through DoseSpot, which handles pharmacy communication, EPCS (electronic prescribing for controlled substances), and prescription drug monitoring.
+
+### NDC (National Drug Code)
+A unique identifier for every drug product in the US. Used when searching for medications in DoseSpot.
+
+### Dispense Unit
+The unit of measurement for a prescription (tablet, capsule, mL, etc.). The `GET /v1/partner/dispense-units` endpoint lists all available units.
+
+### Prior Authorization
+A requirement from some insurance plans to approve a medication before the pharmacy can dispense it. MDI handles the prior authorization workflow through DoseSpot when applicable.

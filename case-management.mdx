@@ -1,0 +1,359 @@
+---
+title: Case Management
+description: "Partner-initiated case actions — cancel cases, send to support, manage hold status, filter by status, view case events, and track statistics"
+---
+
+# Case Management
+
+Beyond creating cases and waiting for clinicians to act on them, you have several tools for managing cases directly: cancelling them, escalating to support, putting them on hold, filtering by status, and auditing the full event history.
+
+## Partner-Initiated Status Changes
+
+As a partner, you can push cases into certain statuses. This is different from the clinician-driven status changes described in the [Case Lifecycle guide](/case-lifecycle) — these are actions *you* take.
+
+### Cancel a Case
+
+If the patient requests a cancellation, their payment fails, or you need to stop a case for any reason:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/cancel \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"reason": "Patient requested cancellation — refund processed"}'
+```
+
+```python Python
+import requests
+
+result = requests.post(
+    f"https://api.mdintegrations.com/v1/partner/cases/{case_id}/cancel",
+    json={"reason": "Patient requested cancellation — refund processed"},
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+).json()
+```
+
+```javascript JavaScript
+const result = await fetch(`https://api.mdintegrations.com/v1/partner/cases/${caseId}/cancel`, {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({ reason: "Patient requested cancellation — refund processed" })
+}).then(r => r.json());
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/cases/$case_id/cancel");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(["reason" => "Patient requested cancellation"]));
+curl_exec($ch);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+<Warning>
+  Cancelled cases cannot be reactivated. If the patient wants to proceed later, you'll need to create a new case. Always provide a clear `reason` — it becomes part of the permanent case record and is visible to clinicians and support staff.
+</Warning>
+
+### Send a Case to Support
+
+If something needs MDI's support team to intervene — unusual patient situation, administrative issue, pharmacy problem:
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/support \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"reason": "Patient reports pharmacy cannot fill prescription — needs transfer to alternative pharmacy"}'
+```
+
+The case moves to "Support" status and MDI's support team takes over. You'll receive a webhook when the case moves back to an active status.
+
+### Set Case as Assigned
+
+Manually move a case to "Assigned" status (waiting for clinician review):
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/assigned \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Send an Approved Case Back to Processing
+
+If a case was approved but needs to go back through clinical review (e.g., the prescription needs to be re-submitted):
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/processing \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Hold Status
+
+When a case is in "Created" status, you can put it on hold to prevent it from entering the MDI clinical workflow. This is useful when you need to collect payment before the case is reviewed, or when you want to batch-submit cases at a specific time.
+
+### Put a case on hold
+
+```bash
+curl -X PATCH https://api.mdintegrations.com/v1/partner/cases/CASE_ID/status \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"hold_status": true}'
+```
+
+### Release from hold
+
+```bash
+curl -X PATCH https://api.mdintegrations.com/v1/partner/cases/CASE_ID/status \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"hold_status": false}'
+```
+
+Once released, the case enters the normal MDI workflow and gets assigned to a clinician.
+
+<Tip>
+  A common pattern: Create the case with `hold_status: true` in the case creation payload, then release it after you've confirmed payment. This way, you don't pay for a case the clinician reviews if the patient's payment fails.
+</Tip>
+
+## Filtering Cases by Status
+
+List all cases in a specific status — essential for building dashboards and monitoring your case queue:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/status/processing \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+# Get all cases in "waiting" status
+waiting_cases = requests.post(
+    "https://api.mdintegrations.com/v1/partner/cases/status/waiting",
+    headers={"Authorization": "Bearer TOKEN"}
+).json()
+
+for case in waiting_cases.get("data", []):
+    print(f"Case {case['case_id']} — Patient: {case.get('patient', {}).get('full_name', 'N/A')}")
+    print(f"  Status: {case['case_status']['name']}")
+    print(f"  Created: {case.get('created_at')}")
+    print(f"  Metadata: {case.get('metadata')}")
+```
+
+```javascript JavaScript
+const waitingCases = await fetch(
+  "https://api.mdintegrations.com/v1/partner/cases/status/waiting",
+  { method: "POST", headers: { "Authorization": "Bearer TOKEN" } }
+).then(r => r.json());
+
+waitingCases.data?.forEach(c => {
+  console.log(`Case ${c.case_id} — ${c.case_status.name} — ${c.metadata}`);
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/cases/status/waiting");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token"]);
+$cases = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+Available status filters: `created`, `assigned`, `waiting`, `cancelled`, `support`, `processing`, `approved`, `completed`.
+
+## Case Statistics
+
+Get a quick count of cases by status — useful for dashboards:
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/statistics/count/cases-by-status \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Response:
+
+```json
+{
+  "assigned": 3,
+  "waiting": 12,
+  "processing": 5,
+  "approved": 2,
+  "support": 1,
+  "created": 8
+}
+```
+
+This gives you an at-a-glance view of your pipeline. Useful for monitoring and alerting — if "waiting" cases are piling up, patients may be slow to respond to clinician requests.
+
+## Case Events (Audit Log)
+
+Every action on a case is recorded as an event. This is the most reliable way to understand what happened to a case and when:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET "https://api.mdintegrations.com/v1/partner/cases/CASE_ID/events?page=1&per_page=50" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+events = requests.get(
+    f"https://api.mdintegrations.com/v1/partner/cases/{case_id}/events",
+    params={"page": 1, "per_page": 50},
+    headers={"Authorization": "Bearer TOKEN"}
+).json()
+
+for event in events.get("data", []):
+    print(f"[{event['created_at'][:19]}] {event['event']}")
+    if event.get("old_values"):
+        print(f"  Changed: {event['old_values']} → {event['new_values']}")
+    print(f"  By: {event.get('user_type', 'system')} {event.get('user_id', '')}")
+```
+
+```javascript JavaScript
+const events = await fetch(
+  `https://api.mdintegrations.com/v1/partner/cases/${caseId}/events?page=1&per_page=50`,
+  { headers: { "Authorization": "Bearer TOKEN" } }
+).then(r => r.json());
+events.data?.forEach(e => {
+  console.log(`[${e.created_at}] ${e.event} by ${e.user_type || "system"}`);
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/cases/$case_id/events?page=1&per_page=50");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token"]);
+$events = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+Events record who did what and when, including the old and new values for any changed fields. This is invaluable for debugging and compliance.
+
+### Case Status History
+
+For a focused view of just the status transitions:
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/cases/CASE_ID/statuses \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "name": "created",
+      "reason": null,
+      "hold_status": false,
+      "user_type": "App\\Models\\Partner",
+      "created_at": "2026-01-22T20:29:40.000000Z"
+    },
+    {
+      "name": "assigned",
+      "reason": null,
+      "hold_status": false,
+      "user_type": "App\\Models\\System",
+      "created_at": "2026-01-22T20:30:15.000000Z"
+    },
+    {
+      "name": "processing",
+      "reason": null,
+      "hold_status": false,
+      "user_type": "App\\Models\\Clinician",
+      "created_at": "2026-01-22T20:35:02.000000Z"
+    }
+  ]
+}
+```
+
+Each entry shows the status name, who triggered the change (`user_type`), the reason (if provided), and the timestamp. This gives you a clean timeline of the case's journey through the system.
+
+## Clinicians & Staff
+
+You can look up information about the clinicians, support staff, and medical assistants working on your cases:
+
+### Get clinician details
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/clinicians/CLINICIAN_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Returns the clinician's name, specialty, online status, email, phone, and profile photo. Useful for showing patients who their doctor is.
+
+### Get support staff details
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/support-staffs/SUPPORT_STAFF_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Get medical assistant details
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/medical-assistants/MEDICAL_ASSISTANT_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Get your own partner info
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Returns your partner name, active status, and partner ID. Useful for verifying your credentials are working correctly.
+
+## Pagination
+
+Most list endpoints in MDI are paginated. They all follow the same pattern:
+
+**Query parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 1 | Page number. |
+| `per_page` | 15 | Results per page. Max varies by endpoint (typically 100). |
+| `sort` | varies | Sort field (e.g., `created_at`, `updated_at`). |
+| `order` | `desc` | Sort direction: `asc` or `desc`. |
+
+**Response structure:**
+
+```json
+{
+  "data": [ ... ],
+  "links": {
+    "first": "https://api.mdintegrations.com/.../endpoint?page=1",
+    "last": "https://api.mdintegrations.com/.../endpoint?page=5",
+    "prev": null,
+    "next": "https://api.mdintegrations.com/.../endpoint?page=2"
+  },
+  "meta": {
+    "current_page": 1,
+    "from": 1,
+    "last_page": 5,
+    "per_page": 15,
+    "to": 15,
+    "total": 73
+  }
+}
+```
+
+Use `meta.last_page` to know how many pages exist, or follow the `links.next` URL to iterate through results. The `meta.total` field gives you the total count without fetching everything.

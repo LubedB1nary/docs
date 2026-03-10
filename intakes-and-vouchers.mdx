@@ -1,0 +1,516 @@
+---
+title: Intakes & Vouchers
+description: "The most common way to onboard patients — create intake links, embed forms, and let MDI handle the rest"
+---
+
+# Intakes & Vouchers
+
+If you only read one guide in this documentation, make it this one. The voucher-based intake flow is how the vast majority of MDI partners onboard patients, and it dramatically reduces the amount of code you need to write.
+
+## What's a Voucher?
+
+Think of a voucher as a "pre-configured intake ticket." When you create a voucher, you're telling MDI: "I have a patient who needs these medications. Here's a questionnaire for them to fill out. Generate a link I can send them."
+
+The patient clicks the link, completes the intake form (which is a white-label MDI page — your branding, your colors), answers medical questions, uploads their photo ID, selects a pharmacy, and signs consent. When they're done, MDI automatically creates a patient record and a case, assigns a clinician, and sends you a webhook. You didn't have to build any of that.
+
+## The Voucher Flow
+
+Here's what happens end-to-end:
+
+<Steps>
+  <Step title="You create a voucher via the API">
+    Specify which questionnaire to use, which offerings (medications/compounds) are available, and optionally pre-fill patient details.
+  </Step>
+  <Step title="MDI returns an onboarding URL">
+    This is a unique, one-time-use URL like `https://patient.mdintegrations.com/?token=abc123`. You send this to your patient however you want — email, SMS, in-app redirect, or embedded iframe.
+  </Step>
+  <Step title="Patient completes the intake form">
+    The patient fills out the questionnaire, provides personal information, uploads any required documents (like a driver's license), selects their preferred pharmacy, and signs consent. All of this is handled by MDI's white-label UI.
+  </Step>
+  <Step title="MDI creates a patient and case automatically">
+    Once the patient submits the form, MDI creates their patient record (synced to DoseSpot), creates a case with the questionnaire answers and offerings attached, and assigns a clinician.
+  </Step>
+  <Step title="You receive a webhook">
+    MDI sends a `voucher_used` webhook to your endpoint with the `case_id`, `voucher_id`, and `patient_id`. From here, you can track the case like any other.
+  </Step>
+</Steps>
+
+## Setting Up Questionnaires
+
+Before you can create vouchers, you need at least one questionnaire configured for your partner account. Questionnaires are the intake forms that patients fill out — they contain questions about medical history, current medications, allergies, and anything else relevant to the treatment.
+
+Questionnaires are typically set up by the MDI team during onboarding, but you can list and inspect them via the API.
+
+### List your questionnaires
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET https://api.mdintegrations.com/v1/partner/questionnaires \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.mdintegrations.com/v1/partner/questionnaires",
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+)
+questionnaires = response.json()
+for q in questionnaires:
+    print(f"{q['partner_questionnaire_id']}: {q['name']}")
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.mdintegrations.com/v1/partner/questionnaires", {
+  headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" }
+});
+const questionnaires = await response.json();
+questionnaires.forEach(q => console.log(`${q.partner_questionnaire_id}: ${q.name}`));
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/questionnaires");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    "Authorization: Bearer $token",
+    "Accept: application/json"
+]);
+$questionnaires = json_decode(curl_exec($ch), true);
+curl_close($ch);
+foreach ($questionnaires as $q) {
+    echo $q["partner_questionnaire_id"] . ": " . $q["name"] . "\n";
+}
+```
+
+</CodeGroup>
+
+Each questionnaire has an `intro_title`, `intro_description`, `outro_title`, `outro_description`, and a `redirect_url` where the patient is sent after completing the form. You'll need the `partner_questionnaire_id` when creating vouchers.
+
+### Get questions for a questionnaire
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET https://api.mdintegrations.com/v1/partner/questionnaires/QUESTIONNAIRE_ID/questions \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    f"https://api.mdintegrations.com/v1/partner/questionnaires/{questionnaire_id}/questions",
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+)
+questions = response.json()
+```
+
+```javascript JavaScript
+const response = await fetch(
+  `https://api.mdintegrations.com/v1/partner/questionnaires/${questionnaireId}/questions`,
+  { headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" } }
+);
+const questions = await response.json();
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/questionnaires/$questionnaire_id/questions");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Accept: application/json"]);
+$questions = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+Questions come with their `type` (text, boolean, file, multiple choice, etc.), options for multiple choice questions, and display settings like `is_important` and `display_in_pdf`.
+
+## Creating a Voucher
+
+Here's where it all comes together. This is the call that generates the intake link:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/vouchers \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "questionnaire_id": "fa6d01b6-57ce-41cb-bf4f-3388a5fb1dac",
+    "patient_id": "492c6b42-9f31-45fa-83c1-f9b83c6fd87b",
+    "expires_at": "2025-12-31 23:59",
+    "hold_status": false,
+    "metadata": "Shopify Order #12345",
+    "offerings": [
+      {
+        "id": "e09b0f66-d0db-4c0f-850c-2ba7e31d9fe7",
+        "product": {
+          "pharmacy_id": 29992,
+          "force_pharmacy": false
+        }
+      }
+    ],
+    "diseases": [
+      {
+        "disease_id": "32f62f6e-32b7-4145-a375-15a2bd8b8dfa"
+      }
+    ]
+  }'
+```
+
+```python Python
+import requests
+
+voucher = requests.post(
+    "https://api.mdintegrations.com/v1/partner/vouchers",
+    json={
+        "questionnaire_id": "fa6d01b6-57ce-41cb-bf4f-3388a5fb1dac",
+        "patient_id": "492c6b42-9f31-45fa-83c1-f9b83c6fd87b",
+        "expires_at": "2025-12-31 23:59",
+        "hold_status": False,
+        "metadata": "Shopify Order #12345",
+        "offerings": [
+            {
+                "id": "e09b0f66-d0db-4c0f-850c-2ba7e31d9fe7",
+                "product": {
+                    "pharmacy_id": 29992,
+                    "force_pharmacy": False
+                }
+            }
+        ],
+        "diseases": [
+            {"disease_id": "32f62f6e-32b7-4145-a375-15a2bd8b8dfa"}
+        ]
+    },
+    headers={
+        "Authorization": "Bearer TOKEN",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+)
+data = voucher.json()
+intake_url = data["onboarding_url"]
+print(f"Send this to your patient: {intake_url}")
+```
+
+```javascript JavaScript
+const voucher = await fetch("https://api.mdintegrations.com/v1/partner/vouchers", {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer TOKEN",
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  },
+  body: JSON.stringify({
+    questionnaire_id: "fa6d01b6-57ce-41cb-bf4f-3388a5fb1dac",
+    patient_id: "492c6b42-9f31-45fa-83c1-f9b83c6fd87b",
+    expires_at: "2025-12-31 23:59",
+    hold_status: false,
+    metadata: "Shopify Order #12345",
+    offerings: [
+      {
+        id: "e09b0f66-d0db-4c0f-850c-2ba7e31d9fe7",
+        product: { pharmacy_id: 29992, force_pharmacy: false }
+      }
+    ],
+    diseases: [{ disease_id: "32f62f6e-32b7-4145-a375-15a2bd8b8dfa" }]
+  })
+});
+const { onboarding_url } = await voucher.json();
+console.log(`Send this to your patient: ${onboarding_url}`);
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/vouchers");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    "Authorization: Bearer $token",
+    "Content-Type: application/json",
+    "Accept: application/json"
+]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    "questionnaire_id" => "fa6d01b6-57ce-41cb-bf4f-3388a5fb1dac",
+    "patient_id" => "492c6b42-9f31-45fa-83c1-f9b83c6fd87b",
+    "expires_at" => "2025-12-31 23:59",
+    "hold_status" => false,
+    "metadata" => "Shopify Order #12345",
+    "offerings" => [
+        [
+            "id" => "e09b0f66-d0db-4c0f-850c-2ba7e31d9fe7",
+            "product" => ["pharmacy_id" => 29992, "force_pharmacy" => false]
+        ]
+    ]
+]));
+$data = json_decode(curl_exec($ch), true);
+curl_close($ch);
+echo "Send this to your patient: " . $data["onboarding_url"];
+```
+
+</CodeGroup>
+
+### Understanding the Voucher Payload
+
+Let's break down every field, because getting this right is key:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `questionnaire_id` | **Yes** | Which intake form the patient will see. Get this from `GET /v1/partner/questionnaires`. |
+| `patient_id` | No | If you already have a patient record, pass it here to pre-fill their information. If omitted, the patient creates their account during intake. |
+| `expires_at` | No | When the voucher link expires. Format: `YYYY-MM-DD HH:MM`. Defaults to one month from creation. |
+| `hold_status` | No | If `true`, the case won't enter the MDI clinician review flow after creation. Useful if you need to do something first (like charge the patient). Defaults to `false`. |
+| `demo` | No | If `true`, creates a demo voucher that doesn't create real patients or cases and never expires. Great for testing your integration. Defaults to `false`. |
+| `metadata` | No | Your internal reference string (up to 255 characters). Included in all webhook payloads so you can correlate events with your own records. |
+| `offerings` | No | Array of offerings to pre-attach to the case. Each offering needs an `id` (from `GET /v1/partner/offerings`) and an optional `product` object with `pharmacy_id` and `force_pharmacy`. |
+| `offerings.*.product.force_pharmacy` | No | If `true`, the specified pharmacy is used regardless of what the patient selects during intake. Useful for partners with exclusive pharmacy relationships. |
+| `diseases` | No | Array of ICD disease codes to pre-attach. Each needs a `disease_id` from `GET /v1/partner/metadata/diseases`. |
+| `pharmacy_id` | No | DoseSpot pharmacy ID. Sets a default pharmacy for the voucher. |
+
+### The Response
+
+```json
+{
+  "partner_voucher_id": "a4d58fd0-2e64-4c9a-955a-a5fcc01584c1",
+  "onboarding_url": "https://patient.mdintegrations.com/?token=91c7bd33-6161-4112-96a3-f46c297689dc",
+  "expires_at": "2025-12-31 23:59:00",
+  "expired": false,
+  "demo": false,
+  "case_id": null,
+  "partner_questionnaire_id": "fa6d01b6-57ce-41cb-bf4f-3388a5fb1dac"
+}
+```
+
+The `onboarding_url` is what you send to the patient. `case_id` will be `null` until the patient completes the intake — then it gets populated with the auto-created case.
+
+## What the Patient Sees
+
+When the patient opens the `onboarding_url`, they go through a multi-step intake flow (all white-labeled with your branding):
+
+1. **Personal information** — name, date of birth, email, phone, address
+2. **Medical history** — the questions from your questionnaire (allergies, current medications, conditions, etc.)
+3. **File uploads** — driver's license photo, lab results, or other documents (if your questionnaire requires them)
+4. **Pharmacy selection** — the patient picks their preferred pharmacy from a searchable list
+5. **Consent & submission** — the patient reviews and signs consent, then submits
+
+The entire experience is responsive and works on mobile. MDI tracks questionnaire completion metrics (how long each question took, where patients drop off) so you can optimize your intake forms.
+
+## Saving Intake Progress
+
+Patients don't have to complete the form in one sitting. MDI automatically saves questionnaire progress, so if a patient closes the browser and comes back later, they pick up where they left off.
+
+## Managing Vouchers
+
+### Get a specific voucher
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET https://api.mdintegrations.com/v1/partner/vouchers/VOUCHER_ID \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    f"https://api.mdintegrations.com/v1/partner/vouchers/{voucher_id}",
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+)
+voucher = response.json()
+print(f"Status: {'expired' if voucher['expired'] else 'active'}")
+print(f"Case created: {voucher['case_id'] or 'Not yet'}")
+```
+
+```javascript JavaScript
+const response = await fetch(`https://api.mdintegrations.com/v1/partner/vouchers/${voucherId}`, {
+  headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" }
+});
+const voucher = await response.json();
+console.log(`Status: ${voucher.expired ? 'expired' : 'active'}`);
+console.log(`Case created: ${voucher.case_id || 'Not yet'}`);
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/vouchers/$voucher_id");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Accept: application/json"]);
+$voucher = json_decode(curl_exec($ch), true);
+curl_close($ch);
+echo "Status: " . ($voucher["expired"] ? "expired" : "active") . "\n";
+echo "Case created: " . ($voucher["case_id"] ?: "Not yet") . "\n";
+```
+
+</CodeGroup>
+
+### List all vouchers
+
+Filter by expiration status:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET "https://api.mdintegrations.com/v1/partner/vouchers/?expired=0&page=1&per_page=25" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+import requests
+
+# Active vouchers
+active = requests.get(
+    "https://api.mdintegrations.com/v1/partner/vouchers/",
+    params={"expired": 0, "page": 1, "per_page": 25},
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+)
+# Expired vouchers
+expired = requests.get(
+    "https://api.mdintegrations.com/v1/partner/vouchers/",
+    params={"expired": 1, "page": 1, "per_page": 25},
+    headers={"Authorization": "Bearer TOKEN", "Accept": "application/json"}
+)
+```
+
+```javascript JavaScript
+const active = await fetch(
+  "https://api.mdintegrations.com/v1/partner/vouchers/?expired=0&page=1&per_page=25",
+  { headers: { "Authorization": "Bearer TOKEN", "Accept": "application/json" } }
+);
+const activeVouchers = await active.json();
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/vouchers/?expired=0&page=1&per_page=25");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Accept: application/json"]);
+$vouchers = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+### Expire a voucher manually
+
+If a patient's situation changes or an order is cancelled, you can expire the voucher so the link no longer works:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/vouchers/VOUCHER_ID/expire \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+requests.post(
+    f"https://api.mdintegrations.com/v1/partner/vouchers/{voucher_id}/expire",
+    headers={"Authorization": "Bearer TOKEN"}
+)
+```
+
+```javascript JavaScript
+await fetch(`https://api.mdintegrations.com/v1/partner/vouchers/${voucherId}/expire`, {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN" }
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/vouchers/$voucher_id/expire");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token"]);
+curl_exec($ch);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+### Delete a voucher
+
+Permanently remove a voucher:
+
+```bash
+curl -X DELETE https://api.mdintegrations.com/v1/partner/vouchers/VOUCHER_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Voucher Lifecycle Webhooks
+
+Set up webhooks to track voucher events in real time:
+
+| Event | What Happened |
+|-------|---------------|
+| `voucher_created` | You created a voucher. |
+| `voucher_updated` | Voucher details were modified. |
+| `voucher_used` | The patient completed the intake. A case was created. **This is the one you care about most.** |
+| `voucher_reminder_sent` | MDI sent the patient a reminder to complete their intake. |
+| `voucher_expired` | The voucher expired (either naturally or because you expired it). |
+
+The `voucher_used` webhook is especially important because it includes the `case_id` — so you know immediately which case to start tracking.
+
+```json
+{
+  "timestamp": 1666384936,
+  "event_type": "voucher_used",
+  "case_id": "26f3d453-09ff-41cb-9fc6-724d1b77277c",
+  "voucher_id": "aa97ff5f-7b36-4abe-a9f9-0ab2990fa70b",
+  "patient_id": "patient-uuid",
+  "metadata": "Shopify Order #12345"
+}
+```
+
+Notice the `metadata` field — this is the same string you passed when creating the voucher. This is how you tie the webhook back to your internal order.
+
+## Using Demo Vouchers for Testing
+
+During development, create demo vouchers by setting `"demo": true`. Demo vouchers:
+
+- Don't create real patient records or cases
+- Never expire
+- Don't trigger charges
+- Let you test the entire intake flow end-to-end
+
+This is the easiest way to see what your patients will experience.
+
+## Common Integration Patterns
+
+### E-commerce (Shopify, WooCommerce)
+
+When a customer places an order for a telehealth product:
+1. Your webhook handler receives the order event
+2. Create a voucher with the order's products mapped to MDI offerings and `metadata` set to the order ID
+3. Send the `onboarding_url` to the customer via email
+4. When you receive the `voucher_used` webhook, mark the order as "intake completed"
+5. When you receive `case_completed`, mark the order as "prescribed"
+6. When you receive `offering_submitted`, mark it as "ready for pharmacy"
+
+### Custom App with Embedded Intake
+
+If you want the intake form inside your own app (rather than redirecting the patient):
+1. Create a voucher with the patient's details pre-filled
+2. Embed the `onboarding_url` in an iframe with `?fullscreen=true` appended (see the [Embedding guide](/embedding))
+3. The patient completes the form without leaving your app
+4. Your webhook handler picks up the `voucher_used` event
+
+### Patient Portal
+
+For returning patients:
+1. Look up the patient by email with `POST /v1/partner/patients/search`
+2. Create a voucher with their `patient_id` to pre-fill their info
+3. Their personal details and medical history carry over — they only need to answer questionnaire-specific questions
+
+<Tip>
+  Always include `metadata` when creating vouchers. It's the most reliable way to tie MDI events back to your own records. Without it, you'll need to maintain a separate mapping table between voucher IDs and your internal order IDs.
+</Tip>

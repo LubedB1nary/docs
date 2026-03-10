@@ -1,0 +1,111 @@
+---
+title: Reference Data
+description: "Look up states, cities, disease codes, offerings, questionnaires, tags, and other metadata"
+---
+
+# Reference Data
+
+MDI provides metadata endpoints for all the reference data you'll need when building your integration. These are read-only lookups that return the IDs and details required by other endpoints.
+
+## Geographic Data
+
+### List US states
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/metadata/states \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Get cities in a state
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/metadata/states/STATE_ID/cities?search=Denver" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Look up by zip code
+
+Returns matching cities and states:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/metadata/zipcodes?search=78701" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Disease Codes (ICD)
+
+Disease codes are used when attaching diagnoses to cases. You'll need these when creating cases with the `diseases` array.
+
+```bash
+# List all disease codes
+curl -X GET https://api.mdintegrations.com/v1/partner/metadata/diseases \
+  -H "Authorization: Bearer TOKEN"
+
+# Get a specific disease
+curl -X GET https://api.mdintegrations.com/v1/partner/metadata/diseases/DISEASE_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Each disease has an `icd` code and a `description` (e.g., ICD `E66.01` = "Morbid obesity due to excess calories").
+
+## Offerings
+
+List all medications, compounds, and supplies configured for your partner account:
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/offerings \
+  -H "Authorization: Bearer TOKEN"
+```
+
+These are the `offering_id` values you use when creating cases and vouchers.
+
+## Questionnaires
+
+```bash
+# List all questionnaires
+curl -X GET https://api.mdintegrations.com/v1/partner/questionnaires -H "Authorization: Bearer TOKEN"
+
+# Get questionnaire details
+curl -X GET https://api.mdintegrations.com/v1/partner/questionnaires/ID -H "Authorization: Bearer TOKEN"
+
+# Get questions for a questionnaire
+curl -X GET https://api.mdintegrations.com/v1/partner/questionnaires/ID/questions -H "Authorization: Bearer TOKEN"
+```
+
+## Tags
+
+Tags let you categorize cases and patients for filtering and organization.
+
+```bash
+# List tags
+curl -X GET "https://api.mdintegrations.com/partner/tags?page=1&per_page=15&type=global" -H "Authorization: Bearer TOKEN"
+
+# Create a tag
+curl -X POST https://api.mdintegrations.com/partner/tags \
+  -H "Content-Type: application/json" -H "Authorization: Bearer TOKEN" \
+  -d '{"name": "VIP", "type": "global"}'
+
+# Update a tag
+curl -X PATCH https://api.mdintegrations.com/partner/tags/TAG_ID \
+  -H "Content-Type: application/json" -H "Authorization: Bearer TOKEN" \
+  -d '{"name": "Priority"}'
+
+# Delete a tag
+curl -X DELETE https://api.mdintegrations.com/partner/tags/TAG_ID -H "Authorization: Bearer TOKEN"
+```
+
+## Other Metadata
+
+```bash
+# Specialties
+curl -X GET https://api.mdintegrations.com/v1/partner/specialties -H "Authorization: Bearer TOKEN"
+
+# License types
+curl -X GET https://api.mdintegrations.com/v1/partner/metadata/license-types -H "Authorization: Bearer TOKEN"
+
+# Your partner profile
+curl -X GET https://api.mdintegrations.com/v1/partner -H "Authorization: Bearer TOKEN"
+
+# Get clinician info
+curl -X GET https://api.mdintegrations.com/v1/partner/clinicians/CLINICIAN_ID -H "Authorization: Bearer TOKEN"
+```

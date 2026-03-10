@@ -1,0 +1,321 @@
+---
+title: Tags & Clinical Notes
+description: "Organize and annotate cases with tags and clinical notes — create custom labels, auto-detach on status changes, and maintain audit trails"
+---
+
+# Tags & Clinical Notes
+
+As your volume of cases grows, you need ways to organize, categorize, and annotate them. MDI provides two tools for this: **tags** (color-coded labels you attach to cases) and **clinical notes** (free-text annotations on a case visible to the clinician).
+
+## Tags
+
+Tags are custom labels you create and attach to cases. They're useful for tracking case categories, flagging issues, segmenting by product line, or any other organizational scheme your team needs.
+
+### Creating Tags
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/partner/tags \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "name": "VIP Customer",
+    "key": "vip-customer",
+    "color": "#5899c7",
+    "type": "global",
+    "description": "High-value customer requiring priority handling",
+    "removable_role": "admin",
+    "auto_detach_status": ["cancelled"]
+  }'
+```
+
+```python Python
+import requests
+
+tag = requests.post(
+    "https://api.mdintegrations.com/partner/tags",
+    json={
+        "name": "VIP Customer",
+        "key": "vip-customer",
+        "color": "#5899c7",
+        "type": "global",
+        "description": "High-value customer requiring priority handling",
+        "removable_role": "admin",
+        "auto_detach_status": ["cancelled"]
+    },
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+).json()
+print(f"Created tag: {tag['id']}")
+```
+
+```javascript JavaScript
+const tag = await fetch("https://api.mdintegrations.com/partner/tags", {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({
+    name: "VIP Customer", key: "vip-customer", color: "#5899c7",
+    type: "global", description: "High-value customer",
+    removable_role: "admin", auto_detach_status: ["cancelled"]
+  })
+}).then(r => r.json());
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/partner/tags");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+    "name" => "VIP Customer", "key" => "vip-customer", "color" => "#5899c7",
+    "type" => "global", "description" => "High-value customer",
+    "removable_role" => "admin", "auto_detach_status" => ["cancelled"]
+]));
+$tag = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+### Tag Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | **Yes** | Display name for the tag. |
+| `key` | string | **Yes** | URL-safe slug for the tag. Must be unique. |
+| `color` | string | **Yes** | Hex color code (e.g., `"#5899c7"`). Used for display in the MDI dashboard. |
+| `type` | string | No | Tag scope: `"global"` or `"partner"`. |
+| `description` | string | No | Description of what this tag means. |
+| `removable_role` | string | No | Set to `"admin"` to restrict who can remove this tag. |
+| `auto_detach_status` | array | No | Automatically remove this tag when the case reaches one of these statuses. Options: `created`, `assigned`, `waiting`, `support`, `processing`, `cancelled`, `completed`. |
+
+The `auto_detach_status` feature is powerful — for example, you could create a "Needs Follow-Up" tag that automatically detaches when the case is completed or cancelled, so it only stays on active cases that still need attention.
+
+### Listing Tags
+
+```bash
+curl -X GET "https://api.mdintegrations.com/partner/tags?page=1&per_page=50&type=global" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Tags are paginated. You can filter by `type` (global or partner).
+
+### Updating a Tag
+
+```bash
+curl -X PATCH https://api.mdintegrations.com/partner/tags/TAG_ID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{
+    "name": "VIP Customer - Priority",
+    "color": "#FF6B6B",
+    "auto_detach_status": ["cancelled", "completed"]
+  }'
+```
+
+### Deleting a Tag
+
+```bash
+curl -X DELETE https://api.mdintegrations.com/partner/tags/TAG_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Attaching Tags to Cases
+
+Once you've created tags, attach them to cases to categorize and organize:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/tags/TAG_ID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"notes": "Customer flagged as VIP — Shopify order #45678"}'
+```
+
+```python Python
+import requests
+
+requests.post(
+    f"https://api.mdintegrations.com/v1/partner/cases/{case_id}/tags/{tag_id}",
+    json={"notes": "Customer flagged as VIP — Shopify order #45678"},
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+)
+```
+
+```javascript JavaScript
+await fetch(`https://api.mdintegrations.com/v1/partner/cases/${caseId}/tags/${tagId}`, {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({ notes: "Customer flagged as VIP — Shopify order #45678" })
+});
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/cases/$case_id/tags/$tag_id");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(["notes" => "VIP customer — Shopify #45678"]));
+curl_exec($ch);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+Each tag attachment can include a `notes` field — a free-text annotation explaining why the tag was added.
+
+### Detaching a tag
+
+```bash
+curl -X DELETE https://api.mdintegrations.com/v1/partner/cases/CASE_ID/tags/TAG_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Updating a tag's notes
+
+```bash
+curl -X PATCH https://api.mdintegrations.com/v1/partner/cases/CASE_ID/tags/TAG_ID \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"notes": "Updated: VIP customer escalated to priority queue"}'
+```
+
+### Viewing tag history
+
+You can see the full audit trail of when tags were added or removed from a case:
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/cases/CASE_ID/tags/historical \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "event": "added",
+      "case_id": "ec6ffbc7-60ae-436e-b37a-f0f3736f12ea",
+      "tag_id": "ca37955c-3a9e-4ee3-93c9-1b2339b15902",
+      "reason": "New Tag",
+      "user_id": "88edb9bb-f42c-4d0e-95cc-831851f47c85",
+      "user_type": "App\\Models\\Clinician",
+      "created_at": "2026-01-22T20:32:05.000000Z"
+    }
+  ]
+}
+```
+
+### Tag Webhooks
+
+You receive webhooks when tags are attached to cases or patients:
+
+```json
+{
+  "event_type": "case_tag_attached",
+  "case_id": "26f3d453-09ff-41cb-9fc6-724d1b77277c",
+  "tag_id": "ca37955c-3a9e-4ee3-93c9-1b2339b15902"
+}
+```
+
+## Clinical Notes
+
+Clinical notes are free-text annotations on a case. They're visible to the clinician reviewing the case, and they create a permanent record of important observations or instructions.
+
+### Creating a Note
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/notes \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"text": "Patient called support requesting expedited shipping. Approved per manager."}'
+```
+
+```python Python
+import requests
+
+note = requests.post(
+    f"https://api.mdintegrations.com/v1/partner/cases/{case_id}/notes",
+    json={"text": "Patient called support requesting expedited shipping. Approved per manager."},
+    headers={"Authorization": "Bearer TOKEN", "Content-Type": "application/json"}
+).json()
+print(f"Note created: {note['case_note_id']}")
+```
+
+```javascript JavaScript
+const note = await fetch(`https://api.mdintegrations.com/v1/partner/cases/${caseId}/notes`, {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({ text: "Patient called support requesting expedited shipping." })
+}).then(r => r.json());
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/cases/$case_id/notes");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token", "Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(["text" => "Patient called support requesting expedited shipping."]));
+$note = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+Notes are limited to 1,000 characters. The note records who created it (partner, clinician, or support staff) and when.
+
+### Listing Notes
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/cases/CASE_ID/notes \
+  -H "Authorization: Bearer TOKEN"
+```
+
+Response:
+
+```json
+[
+  {
+    "case_note_id": "9b12e8ca-ee58-41e0-ac49-44d541194d47",
+    "text": "Patient called support requesting expedited shipping. Approved per manager.",
+    "case_id": "82f194ab-e400-4719-86d5-a734eed02841",
+    "model_type": "App\\Models\\Partner",
+    "model": {
+      "partner_id": "82f194ab-e400-4719-86d5-a734eed02841",
+      "name": "Your Partner Name"
+    },
+    "created_at": "2021-08-19T13:08:33.000000Z"
+  }
+]
+```
+
+### Clinical Note Webhooks
+
+When a clinician adds a clinical note (from the clinician app), you receive:
+
+```json
+{
+  "event_type": "clinical_note_added",
+  "case_id": "26f3d453-09ff-41cb-9fc6-724d1b77277c",
+  "note_id": "9b12e8ca-ee58-41e0-ac49-44d541194d47"
+}
+```
+
+## Common Tag Strategies
+
+Here are some patterns partners use to organize cases effectively:
+
+**By product line:** Create tags like "Weight Loss", "Hair Loss", "Sexual Health" to categorize cases by treatment area. Useful for reporting and filtering.
+
+**By priority:** "VIP", "Expedite", "First-Time Patient" to flag cases that need special attention. Set `removable_role: "admin"` on priority tags so they can't be accidentally removed.
+
+**By issue:** "Address Issue", "Insurance Problem", "Pharmacy Transfer" to track cases that need operational follow-up. Use `auto_detach_status: ["completed", "cancelled"]` so these tags clean themselves up.
+
+**By source:** "Shopify", "Website", "Referral" to track where cases originated. Include the order ID in the tag notes for cross-referencing.

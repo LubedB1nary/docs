@@ -1,0 +1,187 @@
+---
+title: Files & Pharmacies
+description: "Upload patient documents, search pharmacies, and look up medications"
+---
+
+# Files & Pharmacies
+
+This guide covers the supporting infrastructure that makes cases work: uploading patient documents (lab results, photo IDs, prescriptions), searching the pharmacy network, and looking up medications and supplies.
+
+## Uploading Files
+
+Files in MDI follow a two-step process: first you upload the file, then you attach it to a case (or patient). This decoupled approach means you can upload files before the case even exists.
+
+### Upload a file
+
+File uploads use `multipart/form-data` instead of JSON:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mdintegrations.com/v1/partner/files \
+  -H "Authorization: Bearer TOKEN" \
+  -F "file=@/path/to/document.pdf"
+```
+
+```python Python
+import requests
+
+with open("/path/to/document.pdf", "rb") as f:
+    response = requests.post(
+        "https://api.mdintegrations.com/v1/partner/files",
+        files={"file": f},
+        headers={"Authorization": "Bearer TOKEN"}
+    )
+file_id = response.json()["file_id"]
+```
+
+```javascript JavaScript
+const formData = new FormData();
+formData.append("file", fileBlob, "document.pdf");
+
+const response = await fetch("https://api.mdintegrations.com/v1/partner/files", {
+  method: "POST",
+  headers: { "Authorization": "Bearer TOKEN" },
+  body: formData
+});
+const { file_id } = await response.json();
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/files");
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token"]);
+curl_setopt($ch, CURLOPT_POSTFIELDS, ["file" => new CURLFile("/path/to/document.pdf")]);
+$data = json_decode(curl_exec($ch), true);
+$file_id = $data["file_id"];
+curl_close($ch);
+```
+
+</CodeGroup>
+
+The response includes a `file_id`, the file's URL, and a thumbnail URL (for images).
+
+### Attach a file to a case
+
+```bash
+curl -X POST https://api.mdintegrations.com/v1/partner/cases/CASE_ID/files/FILE_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Other file operations
+
+```bash
+# List case files
+curl -X GET https://api.mdintegrations.com/v1/partner/cases/CASE_ID/files -H "Authorization: Bearer TOKEN"
+
+# Get file details
+curl -X GET https://api.mdintegrations.com/v1/partner/files/FILE_ID -H "Authorization: Bearer TOKEN"
+
+# Remove file from case
+curl -X DELETE https://api.mdintegrations.com/v1/partner/cases/CASE_ID/files/FILE_ID -H "Authorization: Bearer TOKEN"
+
+# Delete file permanently
+curl -X DELETE https://api.mdintegrations.com/v1/partner/files/FILE_ID -H "Authorization: Bearer TOKEN"
+```
+
+## Searching Pharmacies
+
+MDI integrates with DoseSpot for pharmacy data. You can search the entire US pharmacy network:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET "https://api.mdintegrations.com/v1/partner/pharmacies?name=Curexa" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+```python Python
+pharmacies = requests.get(
+    "https://api.mdintegrations.com/v1/partner/pharmacies",
+    params={"name": "Curexa"},
+    headers={"Authorization": "Bearer TOKEN"}
+).json()
+```
+
+```javascript JavaScript
+const response = await fetch("https://api.mdintegrations.com/v1/partner/pharmacies?name=Curexa", {
+  headers: { "Authorization": "Bearer TOKEN" }
+});
+const pharmacies = await response.json();
+```
+
+```php PHP
+<?php
+$ch = curl_init("https://api.mdintegrations.com/v1/partner/pharmacies?name=Curexa");
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Bearer $token"]);
+$pharmacies = json_decode(curl_exec($ch), true);
+curl_close($ch);
+```
+
+</CodeGroup>
+
+You need at least one search parameter: `name`, `city`, `state`, or `zipcode`. This forwards to DoseSpot to search their pharmacy database.
+
+<Note>
+  DoseSpot uses different pharmacy IDs in staging vs. production. For example, the Curexa pharmacy is ID `13012` in staging and `29992` in production. Make sure you're using the right IDs for your environment.
+</Note>
+
+### Get pharmacy details
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/pharmacies/PHARMACY_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### List linked pharmacies
+
+See all pharmacies linked to your partner account:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/linked-pharmacies?page=1&per_page=25" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Searching Medications and Supplies
+
+### Search DoseSpot medications
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/medications/search?name=Isotretinoin" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Get medication details
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/medications/select?dispensable_drug_id=DRUG_ID" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Search supplies
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/supplies/search?name=Masks" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Search Boothwyn compounds
+
+For compounding pharmacy products:
+
+```bash
+curl -X GET "https://api.mdintegrations.com/v1/partner/boothwyn/search?name=Semaglutide" \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Dispense units
+
+Get the list of available dispense units (tablet, capsule, mL, etc.):
+
+```bash
+curl -X GET https://api.mdintegrations.com/v1/partner/dispense-units \
+  -H "Authorization: Bearer TOKEN"
+```
