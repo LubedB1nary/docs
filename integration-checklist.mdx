@@ -1,0 +1,370 @@
+---
+title: Integration Checklist
+description: "Step-by-step checklist to go from zero to live on the MDI API — credentials, auth, patients, intake, webhooks, messaging, fulfillment, testing, and go-live"
+---
+
+# Integration Checklist
+
+This is the complete checklist for building, testing, and launching your MDI integration. Work through each phase in order. Items marked with ⚡ are **critical** — skip them and your integration will break.
+
+**76 tasks across 11 phases.** Print this page or bookmark it — come back and check things off as you go.
+
+---
+
+## Phase 1: Credentials & Environment
+
+Everything starts here. You can't write a single line of code until you have credentials and understand the environment setup.
+
+<Steps>
+  <Step title="⚡ Obtain sandbox Client ID and Client Secret from MDI team">
+    Contact your MDI account manager. You'll receive separate credentials for sandbox and production. Sandbox creds let you develop and test without creating real prescriptions or charges.
+  </Step>
+  <Step title="⚡ Obtain production Client ID and Client Secret">
+    Only request production creds when your sandbox testing is complete. Production credentials create real prescriptions, real pharmacy orders, and real charges.
+  </Step>
+  <Step title="⚡ Register your webhook endpoint URL (HTTPS required)">
+    Provide your endpoint URL to MDI support at [support@mdintegrations.com](mailto:support@mdintegrations.com). They'll configure it for your partner account and provide your webhook secret key for signature verification.
+  </Step>
+  <Step title="Receive and securely store your webhook secret key">
+    Used for SHA-256 signature verification on incoming webhooks. Store in environment variables — never commit to source code or expose in client-side code.
+  </Step>
+  <Step title="Confirm which questionnaire IDs are configured for your account">
+    Run `GET /v1/partner/questionnaires` to see your available questionnaires and their IDs. You'll need these when creating vouchers or cases.
+  </Step>
+  <Step title="Confirm which offering IDs are configured for your account">
+    Run `GET /v1/partner/offerings` to see your medications, compounds, supplies, and services. Note which are active and their default configurations.
+  </Step>
+  <Step title="⚡ Note sandbox vs. production pharmacy ID differences">
+    DoseSpot uses **different pharmacy IDs** per environment. For example, Curexa is ID `13012` in sandbox and `29992` in production. Never hardcode pharmacy IDs — always look them up dynamically via `GET /v1/partner/pharmacies`.
+  </Step>
+</Steps>
+
+---
+
+## Phase 2: Authentication
+
+Your integration's foundation. Every API call requires a valid Bearer token.
+
+<Steps>
+  <Step title="⚡ Implement OAuth 2.0 client_credentials token request">
+    `POST /v1/partner/auth/token` with `grant_type: "client_credentials"`, your `client_id`, `client_secret`, and `scope: "*"`. Returns `access_token` and `expires_in`. See the [Authentication guide](/authentication) for full code examples.
+  </Step>
+  <Step title="Implement token caching (don't re-auth on every request)">
+    Cache the token and `expires_in` value. Refresh approximately 5 minutes before expiry. Requesting a new token on every API call wastes resources and may hit rate limits.
+  </Step>
+  <Step title="Implement automatic token refresh on 401 responses">
+    If any API call returns HTTP 401, request a new token and retry the original call once. This prevents cascading failures when tokens expire mid-operation.
+  </Step>
+  <Step title="Verify credentials work: GET /v1/partner">
+    Simple smoke test. Should return your partner name, active status, and partner_id. If this works, your auth is set up correctly.
+  </Step>
+</Steps>
+
+---
+
+## Phase 3: Patient Management
+
+Patients are the core entity. Every case is tied to a patient record.
+
+<Steps>
+  <Step title="⚡ Implement patient creation (POST /v1/partner/patients)">
+    **Required fields:** `first_name`, `last_name`, `email` (unique per partner), `date_of_birth` (YYYY-MM-DD), `gender` (ISO 5218: 1=male, 2=female), `phone_number` (US format), `phone_type` (2=cell, 4=home), and full `address` object. See the [Patients guide](/patients) for complete field reference.
+  </Step>
+  <Step title="Handle duplicate email errors gracefully">
+    Email must be unique per partner. Search for existing patients before creating new ones. If the patient already exists, reuse their record or update it.
+  </Step>
+  <Step title="⚡ Implement unit conversion if collecting imperial measurements">
+    MDI uses **kilograms** for weight and **centimeters** for height — not pounds and inches. Conversions: `1 lb = 0.4536 kg`, `1 inch = 2.54 cm`. Getting this wrong means incorrect BMI calculations, which affects medication eligibility rules.
+  </Step>
+  <Step title="Include health data: allergies, current_medications, medical_conditions">
+    Free text fields. Include as much detail as the patient provides — medication names, dosages, and frequencies are all helpful for the clinician's review.
+  </Step>
+  <Step title="Include pregnancy status where applicable">
+    Boolean field (`pregnancy: true/false`). Critical for teratogenic medications. Clinicians need this for safe prescribing decisions.
+  </Step>
+  <Step title="Implement patient update (PATCH /v1/partner/patients/:id)">
+    For returning patients — update address, phone, health data before creating a new case. Keeps the clinical record current.
+  </Step>
+  <Step title="Implement patient search/lookup for returning patients">
+    `GET /v1/partner/patients` with search params. Prevents creating duplicate patient records, which causes confusion for clinicians.
+  </Step>
+</Steps>
+
+---
+
+## Phase 4: Intake Flow
+
+<Note>
+  **Choose one path:** Most partners start with the **Voucher path** (MDI handles the intake UI). The **Direct API path** gives you full control but requires significantly more development. You can always switch later.
+</Note>
+
+<Steps>
+  <Step title="⚡ Decide: Voucher-based intake OR Direct API case creation">
+    **Vouchers** = MDI handles the intake UI. You create a voucher, send the patient a link, MDI collects their answers and creates the case. **Direct API** = you build your own intake forms, collect everything, and POST it all to the API. See the [Intakes & Vouchers guide](/intakes-and-vouchers) for a detailed comparison.
+  </Step>
+  <Step title="[Voucher path] Create vouchers (POST /v1/partner/vouchers)">
+    Include `questionnaire_id`, patient info (or leave blank for the intake to collect it), `metadata` (your order ID — critical for webhook correlation), and `expires_at`. Set `demo: true` for testing.
+  </Step>
+  <Step title="[Voucher path] Send onboarding_url to patient or embed in iframe">
+    The voucher response includes an `onboarding_url`. Either redirect the patient to this URL or embed it in your app with `?fullscreen=true`. See the [Embedding guide](/embedding) for iframe setup.
+  </Step>
+  <Step title="⚡ [Voucher path] Handle voucher_used webhook → extract case_id and patient_id">
+    This is your signal that the patient completed the intake. The webhook contains the `case_id` (the new case) and `patient_id`. Map these to your internal order using the `metadata` field.
+  </Step>
+  <Step title="[Direct API] Create case with offerings, questions, diseases, files">
+    `POST /v1/partner/cases` with `patient_id`, `case_offerings`/`case_services`, `case_questions`, and `diseases` array. This is the most comprehensive approach but requires the most development. See the [Case Lifecycle guide](/case-lifecycle).
+  </Step>
+  <Step title="[Direct API] Post case questions individually if not inline">
+    `POST /v1/partner/cases/:case_id/questions` — set `type` (boolean/string/number), `important`, `is_critical`, and `display_in_pdf` flags. See the [Questionnaires & Questions guide](/questionnaires-and-questions).
+  </Step>
+  <Step title="[Direct API] Attach disease codes (ICD) to the case">
+    `GET /v1/partner/metadata/diseases` to find codes, then `POST /v1/partner/cases/:case_id/diseases`. Set one disease as primary — DoseSpot requires it for prescriptions.
+  </Step>
+  <Step title="[Direct API] Upload any required files (labs, ID, photos)">
+    `POST /v1/partner/files` to upload, then attach the returned `file_id` to the case or patient record.
+  </Step>
+</Steps>
+
+---
+
+## Phase 5: Webhook Handler
+
+This is the biggest phase and the backbone of your integration. Webhooks are how MDI tells you what's happening.
+
+<Warning>
+  **Your webhook endpoint must respond quickly** (within a few seconds). Process events asynchronously — push to a queue (SQS, Redis, etc.) and process in a worker. MDI retries on timeout.
+</Warning>
+
+<Steps>
+  <Step title="⚡ Build webhook endpoint (POST, returns 200 quickly)">
+    Accept POST requests at your registered URL. Parse the JSON body. Return HTTP 200 immediately. Process the event asynchronously. See the [Webhooks guide](/webhooks) for full setup.
+  </Step>
+  <Step title="⚡ Implement SHA-256 signature verification">
+    Compute `SHA256(secret_key + raw_request_body)` and compare to the `Signature` header. Reject requests with invalid signatures. This prevents attackers from sending fake events to your endpoint.
+  </Step>
+  <Step title="Handle case_created webhook">
+    Case entered the MDI system. Log the `case_id` → `metadata` mapping for future correlation.
+  </Step>
+  <Step title="⚡ Handle case_approved webhook">
+    Clinician approved the prescription. Update your order status to "approved". This is when you know the treatment was greenlit by a licensed physician.
+  </Step>
+  <Step title="⚡ Handle case_completed webhook">
+    All prescriptions confirmed by pharmacy. The clinical workflow is done. Update your order to "completed".
+  </Step>
+  <Step title="⚡ Handle case_cancelled webhook">
+    Case was denied or cancelled. Process refund if applicable. Notify patient. Check the message thread for the clinician's explanation.
+  </Step>
+  <Step title="Handle case_waiting webhook">
+    Clinician needs more info. Notify patient to check their messages. May be accompanied by a workflow request webhook (file upload, ID photo, etc.).
+  </Step>
+  <Step title="⚡ Handle offering_submitted webhook">
+    Prescription sent to pharmacy and confirmed. This is your trigger for order fulfillment, confirmation emails, and payment capture.
+  </Step>
+  <Step title="Handle message_created webhook">
+    New message in conversation. Check `user_type` — if it's `App\Models\Clinician`, the clinician sent a message to the patient. Your app should notify the patient and surface the message.
+  </Step>
+  <Step title="Handle order_status_changed and order_tracking_number_changed">
+    Pharmacy fulfillment updates. `order_tracking_number_changed` gives you the tracking number — send it to the patient.
+  </Step>
+  <Step title="Handle partner_charge webhook (billing events)">
+    Record charges by `charge_type`: `case_completed`, `case_cancelled`, `text_message`, `vouched_run`, `additional_charge`. Match to your internal billing system.
+  </Step>
+  <Step title="Handle voucher_used and voucher_expired webhooks">
+    `voucher_used` creates a case — this is your intake completion signal. `voucher_expired` means the patient didn't complete the intake in time.
+  </Step>
+  <Step title="Handle workflow request webhooks">
+    `drivers_license_requested`, `file_upload_requested`, `exam_requested`, `preferred_pharmacy_requested`. Each includes an `access_link` — send it directly to the patient so they can complete the request.
+  </Step>
+  <Step title="Implement idempotency / deduplication for webhook retries">
+    Use `timestamp` + `event_type` + entity ID to deduplicate. MDI may retry delivery if your endpoint was slow or returned a non-200 status.
+  </Step>
+</Steps>
+
+---
+
+## Phase 6: Patient ↔ Clinician Messaging
+
+Messaging is essential for the "Waiting" flow — when clinicians need more information from patients.
+
+<Steps>
+  <Step title="⚡ Implement reading messages (GET /v1/partner/patients/:id/messages)">
+    Filter by `channel=patient`. Paginated. Each message shows who sent it (`user_type`), when, whether it's been read, and any file attachments. See the [Messaging guide](/messaging).
+  </Step>
+  <Step title="Implement sending messages (POST /v1/partner/patients/:id/messages)">
+    Set `channel`, `text`, `sender_type` (partner/patient/system). Attach files via file IDs. Use `sender_type: "system"` for automated messages, `"partner"` for human support.
+  </Step>
+  <Step title="Implement marking messages as read">
+    `POST /v1/partner/patients/:id/messages/:message_id/read`. This tells clinicians the patient has seen the message — important for clinical workflow tracking.
+  </Step>
+  <Step title="⚡ Build UI to surface clinician messages to patients">
+    When the `message_created` webhook fires with `user_type=App\Models\Clinician`, display the message to the patient in your app. This is how clinicians communicate treatment plans and requests.
+  </Step>
+  <Step title="OR: Embed MDI's messaging portal via iframe">
+    Alternative to building your own messaging UI. Use the auth link endpoint to get a pre-authenticated URL to MDI's built-in messaging interface, then embed it in an iframe.
+  </Step>
+</Steps>
+
+---
+
+## Phase 7: Post-Prescription & Fulfillment
+
+What happens after the clinician approves. See the [After the Prescription guide](/after-the-prescription) for detailed coverage.
+
+<Steps>
+  <Step title="Implement order listing (GET /v1/partner/cases/:id/orders)">
+    After case approval, orders are created for pharmacy fulfillment. Returns orders grouped by pharmacy with sequence info (for recurring prescriptions — e.g., `sequence_number: 2` of `sequence_total: 4` for the second of four monthly shipments).
+  </Step>
+  <Step title="Implement order submission (POST .../orders/:id/submit)">
+    Submit orders to the pharmacy. Check that the order `status` is `ready` before submitting.
+  </Step>
+  <Step title="⚡ Handle order failures (address validation, insurance, stock)">
+    Check `details`, `status_details`, and `status_metadata` for error codes. The most common failure is **invalid address** — zip code doesn't match state. Your system should detect these and prompt the patient to update their address.
+  </Step>
+  <Step title="Implement order cancellation (POST .../orders/:id/cancel)">
+    Cancel a failed order. Status changes to `cancelling`. You may need to resubmit to a different pharmacy after fixing the issue.
+  </Step>
+  <Step title="Track shipping via order webhooks and update your system">
+    `order_tracking_number_changed` gives you the tracking number. Send it to the patient via email, SMS, or in-app notification.
+  </Step>
+  <Step title="Handle payment status updates on orders">
+    `PATCH /v1/partner/cases/:id/orders/:order_id` to update `payment_status` (e.g., "paid") and `payment_date`. Keeps MDI in sync with your payment system.
+  </Step>
+</Steps>
+
+---
+
+## Phase 8: Pharmacy Management
+
+<Steps>
+  <Step title="Implement pharmacy search (GET /v1/partner/pharmacies?name=...)">
+    Proxies DoseSpot's pharmacy database. Search by name, city, state, or zip. Returns the `pharmacy_id` needed for prescriptions and patient preferred pharmacy assignment.
+  </Step>
+  <Step title="Implement preferred pharmacy on patient record">
+    `POST /v1/partner/patients/:id/pharmacies/:pharmacy_id` to add a preferred pharmacy. This is what the patient's prescriptions default to.
+  </Step>
+  <Step title="Get linked pharmacies for your partner account">
+    `GET /v1/partner/linked-pharmacies` — shows which pharmacies MDI has connected for your account. These are the pharmacies your cases can be sent to.
+  </Step>
+  <Step title="Handle preferred_pharmacy_requested workflow webhook">
+    When a clinician asks the patient to select a pharmacy, send the `access_link` from the webhook to the patient.
+  </Step>
+</Steps>
+
+---
+
+## Phase 9: Error Handling & Edge Cases
+
+<Steps>
+  <Step title="Handle 401 (unauthorized) → refresh token and retry">
+    Token expired. Request a new token and retry the original call once. Don't retry more than once — if the new token also fails, there's a credentials issue.
+  </Step>
+  <Step title="Handle 422 (validation) → parse error details and show to user">
+    Missing or invalid fields. The response body contains field-level error messages. Parse them and display meaningful feedback.
+  </Step>
+  <Step title="Handle 429 (rate limit) → implement exponential backoff">
+    Too many requests. Wait and retry with increasing delays (1s, 2s, 4s, 8s...). Don't hammer the API.
+  </Step>
+  <Step title="Handle 500 (server error) → retry with backoff, alert if persistent">
+    Transient MDI issue. Retry 2-3 times with exponential backoff. Contact MDI support if 500s persist for more than a few minutes.
+  </Step>
+  <Step title="⚡ Always use metadata field for your internal order/reference IDs">
+    Set `metadata` on every case and voucher you create. It shows up in every webhook payload, making event correlation trivial. Without this, you'll struggle to connect webhook events to your internal orders.
+  </Step>
+  <Step title="Handle duplicate patient email gracefully (search before create)">
+    `GET /v1/partner/patients` with email filter before `POST`. Reuse existing patient records for returning customers instead of creating duplicates.
+  </Step>
+  <Step title="Log full webhook payloads during development">
+    Save the raw JSON body of every webhook to a database or file. When something unexpected happens, you can review the full payload rather than trying to reproduce the issue.
+  </Step>
+</Steps>
+
+---
+
+## Phase 10: Testing & QA
+
+<Steps>
+  <Step title="⚡ Test with demo vouchers (demo: true) — no real records or charges">
+    Walk through the entire intake as a patient. Verify the questionnaire looks right, uploads work, pharmacy selection works, and the intake completes cleanly.
+  </Step>
+  <Step title="Test with test encounters (/v1/partner/tests/encounters)">
+    Create test encounters, simulate status changes, add prescriptions, test messaging — all through dedicated test endpoints that don't affect real data.
+  </Step>
+  <Step title="Verify webhook signature validation rejects bad signatures">
+    Send a request to your webhook endpoint with an invalid `Signature` header. Your handler should return 401 or 403.
+  </Step>
+  <Step title="⚡ Test the full happy path: patient → intake → case → approval → prescription → order">
+    Create a test encounter, push it through every status, verify every webhook fires, and confirm your system updates correctly at each step.
+  </Step>
+  <Step title="Test the denial path: case → cancelled, verify refund logic">
+    Cancel a test case and verify your system handles it — refunds, patient notifications, status updates, billing reconciliation.
+  </Step>
+  <Step title="Test the waiting path: case → waiting → message → patient responds">
+    Simulate a clinician requesting more info. Verify clinician messages surface in your UI and the patient can respond.
+  </Step>
+  <Step title="Test order failure handling (bad address, etc.)">
+    Submit an order with an intentionally invalid address. Verify your system catches the failure, surfaces the error to the patient, and can resubmit after correction.
+  </Step>
+  <Step title="⚡ Test with real sandbox credentials end-to-end">
+    Not just test endpoints — a real sandbox flow. Create real (sandbox) patients, cases, and verify the full lifecycle including clinician review. This is the closest simulation to production.
+  </Step>
+  <Step title="Test embedded iframe if using embedding (camera/microphone permissions)">
+    ID verification may need camera access. Test that your iframe `allow` policy permits `camera; microphone` and that the intake flow works in the embedded context.
+  </Step>
+</Steps>
+
+---
+
+## Phase 11: Go-Live 🚀
+
+<Warning>
+  **Do not proceed until all Phase 10 testing is complete.** Production credentials create real prescriptions for real patients. Mistakes here have clinical consequences.
+</Warning>
+
+<Steps>
+  <Step title="⚡ Switch from sandbox to production credentials">
+    Update your environment variables with production `client_id` and `client_secret`. Triple-check you're NOT using sandbox creds in production (or vice versa).
+  </Step>
+  <Step title="⚡ Update pharmacy IDs for production environment">
+    Pharmacy IDs differ between sandbox and production. If you hardcoded any (don't), update them now. Better: look them up dynamically via `GET /v1/partner/pharmacies`.
+  </Step>
+  <Step title="⚡ Register production webhook endpoint with MDI">
+    May be a different URL than your sandbox webhook endpoint. Confirm with MDI support that your production webhook URL and secret key are configured.
+  </Step>
+  <Step title="Verify production token generation works">
+    Generate a token with production creds. Call `GET /v1/partner` to confirm it returns your live partner name and ID.
+  </Step>
+  <Step title="Set up monitoring and alerting for webhook failures">
+    Monitor your webhook endpoint uptime and response times. Alert if events stop arriving, if error rates spike, or if your endpoint starts timing out.
+  </Step>
+  <Step title="Set up logging for all MDI API calls and responses">
+    Log request/response pairs for every MDI API call (redact sensitive patient data). Essential for debugging production issues and for compliance.
+  </Step>
+  <Step title="Confirm billing is correctly tracking partner_charge events">
+    Verify that `charge_type` and `charge_amount` values in `partner_charge` webhooks match your contract with MDI. Set up reconciliation reporting.
+  </Step>
+  <Step title="⚡ Run one real end-to-end test with a test patient in production">
+    Create a real case with a test patient (use your own info or a team member's). Verify the clinician receives it, reviews it, and the full flow completes through to pharmacy.
+  </Step>
+  <Step title="Document your MDI integration for your team">
+    Internal runbook covering: where credentials are stored, how webhook events are processed, error recovery procedures, MDI support contact info, and escalation paths.
+  </Step>
+</Steps>
+
+---
+
+## Quick Reference: Critical Items
+
+These are the items that will break your integration if you skip them:
+
+| Phase | Item |
+|-------|------|
+| Credentials | Sandbox + Production creds, webhook registration, pharmacy ID differences |
+| Auth | OAuth token request implementation |
+| Patients | Patient creation, unit conversion (kg/cm not lbs/inches) |
+| Intake | Choose path, handle voucher_used webhook (voucher) OR build full case creation (API) |
+| Webhooks | Signature verification, case_approved, case_completed, case_cancelled, offering_submitted |
+| Messaging | Read messages, surface clinician messages to patients |
+| Fulfillment | Handle order failures |
+| Errors | Always use metadata field |
+| Testing | Demo vouchers, full happy-path test, real sandbox end-to-end |
+| Go-Live | Switch creds, update pharmacy IDs, register production webhooks, run real production test |
